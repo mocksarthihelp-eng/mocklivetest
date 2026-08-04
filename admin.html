@@ -58,7 +58,7 @@
     .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; position: relative; }
     .msg-admin { background: #075E54; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
     .msg-student { background: #334155; color: white; align-self: flex-start; border-bottom-left-radius: 0; }
-    .msg-time { display: block; font-size: 0.65rem; color: #cbd5e1; text-align: right; margin-top: 4px; }
+    .msg-time { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 0.65rem; color: #cbd5e1; margin-top: 4px; }
     
     .chat-input-box { display: flex; gap: 10px; padding: 15px; background: #1e293b; border-top: 1px solid #334155; border-radius: 0 0 12px 12px; }
     .chat-input-box input { flex: 1; background: #334155; border: none; padding: 12px 15px; border-radius: 25px; color: white; outline: none; }
@@ -92,9 +92,7 @@
             <div class="sidebar-header">
                 <button class="generate-btn" id="generateKeyBtn"><i class="fas fa-key"></i> Generate 6-Digit Key</button>
             </div>
-            <div id="keysList">
-                <!-- Keys will load here via Firebase -->
-            </div>
+            <div id="keysList"></div>
         </div>
 
         <div class="chat-area">
@@ -109,7 +107,7 @@
                 </div>
             </div>
             <div class="chat-input-box" style="display: none;" id="chatInputArea">
-                <input type="text" id="adminMsgInput" placeholder="Type a message (Offline students will see this later)..." autocomplete="off">
+                <input type="text" id="adminMsgInput" placeholder="Type a message (Emojis supported)..." autocomplete="off">
                 <button id="adminSendBtn"><i class="fas fa-paper-plane"></i></button>
             </div>
         </div>
@@ -137,6 +135,9 @@
     let typingTimer;
 
     const ADMIN_PASSWORD = "Ankush@2026";
+    
+    function escapeHtml(str) { return str.replace(/[&<>]/g, m => m=='&'?'&amp;':m=='<'?'&lt;':'&gt;'); }
+
     document.getElementById("adminLoginBtn").addEventListener("click", tryLogin);
     document.getElementById("adminPassInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
     document.getElementById("logoutBtn").addEventListener("click", () => { location.reload(); });
@@ -161,7 +162,7 @@
             admin_typing: false,
             student_typing: false
         }).then(() => {
-            alert(`New Key Generated: ${newKey} \nWhatsApp/Call pe student ko ye key de do.`);
+            alert(`New Key Generated: ${newKey}`);
         });
     });
 
@@ -175,7 +176,6 @@
                 Object.keys(data).reverse().forEach(key => {
                     let div = document.createElement("div");
                     div.className = `key-item ${currentKey === key ? 'active' : ''}`;
-                    // Agar student online hai toh key ke aage green dot dikhao
                     let statusDot = data[key].student_status === 'online' ? '<span style="color:#25D366; font-size:0.6rem; margin-left:5px;">🟢</span>' : '';
                     div.innerHTML = `<i class="fas fa-hashtag"></i> ${key} ${statusDot}`;
                     div.onclick = () => openChat(key);
@@ -188,7 +188,6 @@
     }
 
     function openChat(key) {
-        // Purani chat band karte waqt khud ko offline mark karo
         if(currentKey) {
             update(ref(db, 'support_keys/' + currentKey), { admin_status: 'offline', admin_typing: false });
         }
@@ -204,20 +203,37 @@
         const msgBox = document.getElementById("chatMessages");
         const statusBox = document.getElementById("studentStatus");
 
-        // Khud ko Online set karo aur disconnect hone par automatically Offline hone ka hook lagao
         const myKeyRef = ref(db, 'support_keys/' + currentKey);
         update(myKeyRef, { admin_status: 'online' });
         onDisconnect(myKeyRef).update({ admin_status: 'offline', admin_typing: false });
 
-        // Listen for Realtime messages
+        // Listen for Realtime messages & Mark Read
         onValue(ref(db, 'messages/' + key), (snapshot) => {
             msgBox.innerHTML = "";
             const msgs = snapshot.val();
             if(msgs) {
-                Object.values(msgs).forEach(m => {
+                Object.keys(msgs).forEach(msgId => {
+                    let m = msgs[msgId];
+                    
+                    // Mark student message as read since admin has opened chat
+                    if(m.sender === 'student' && m.status !== 'read') {
+                        update(ref(db, `messages/${key}/${msgId}`), { status: 'read' });
+                    }
+
                     let time = new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     let isAdmin = m.sender === 'admin';
-                    msgBox.innerHTML += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${m.text}<span class="msg-time">${time}</span></div>`;
+                    
+                    // Read Receipts Logic
+                    let tickHtml = '';
+                    if (isAdmin) {
+                        if (m.status === 'read') {
+                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; // Blue Double Tick
+                        } else {
+                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; // Single Grey Tick
+                        }
+                    }
+
+                    msgBox.innerHTML += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${escapeHtml(m.text)}<span class="msg-time">${time} ${tickHtml}</span></div>`;
                 });
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
@@ -244,7 +260,12 @@
         let input = document.getElementById("adminMsgInput");
         let text = input.value.trim();
         if (text !== "" && currentKey) {
-            push(ref(db, 'messages/' + currentKey), { sender: 'admin', text: text, timestamp: Date.now() });
+            push(ref(db, 'messages/' + currentKey), { 
+                sender: 'admin', 
+                text: text, 
+                timestamp: Date.now(),
+                status: 'sent' // Default sent status
+            });
             input.value = "";
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: false });
         }
@@ -255,7 +276,6 @@
         if (e.key === "Enter") sendMessage(); 
     });
 
-    // Admin Typing Indicator Logic
     document.getElementById("adminMsgInput").addEventListener("input", () => {
         if(currentKey) {
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: true });
