@@ -203,7 +203,7 @@
         .chat-media-video { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 5px; background: #000; }
         .chat-media-audio { max-width: 200px; margin-top: 5px; outline: none; }
 
-        /* Emoji Picker Styles (Student) */
+        /* Icons & Emoji Picker Styles */
         .ls-emoji-btn { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: 0.2s; padding-right: 5px; }
         .ls-emoji-btn:hover { color: #ffd966; }
         .ls-emoji-picker { 
@@ -464,7 +464,6 @@
             <!-- Realtime messages load here -->
         </div>
         
-        <!-- EMOJI PICKER DIV -->
         <div class="ls-emoji-picker" id="studentEmojiPicker"></div>
 
         <div style="display: flex; gap: 8px; padding: 10px; background: #1e293b; border-top: 1px solid #334155; align-items: center;">
@@ -1324,7 +1323,7 @@
     loadData(); 
 </script>
 
-<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes & MEDIA UPLOAD -->
+<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes & Cloudinary Media Upload -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getDatabase, ref, get, push, onValue, update, onDisconnect, off } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
@@ -1338,8 +1337,11 @@
         messagingSenderId: "697418784895",
         appId: "1:697418784895:web:c1f21e30d218a1cb3f9f4a"
     };
-    
-    const GAS_UPLOAD_URL = "https://script.google.com/macros/s/AKfycbx4VYiTGjaGgNTsWXwUtKGvlKmApOX9b2FIshwWoJ4RExweCo8IO7WlEIGiK_f_xKUv/exec";
+
+    // CLOUDINARY CONFIG
+    const CLOUD_NAME = "tj76wasn";
+    const UPLOAD_PRESET = "live_support_media";
+    const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
@@ -1377,33 +1379,15 @@
         }
     });
 
-    // --- GOOGLE DRIVE MEDIA UPLOAD LOGIC ---
+    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
     document.getElementById("studentAttachBtn").addEventListener("click", () => {
         if(!activeSessionKey) return;
         document.getElementById("studentFileInput").click();
     });
 
-    function getBase64(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-                let encoded = reader.result.toString().replace(/^data:(.*,)?/, '');
-                if ((encoded.length % 4) > 0) { encoded += '='.repeat(4 - (encoded.length % 4)); }
-                resolve(encoded);
-            };
-            reader.onerror = error => reject(error);
-        });
-    }
-
     document.getElementById("studentFileInput").addEventListener("change", async (e) => {
         let file = e.target.files[0];
         if(!file) return;
-        
-        if(file.size > 15 * 1024 * 1024) { 
-            alert("File size bahut badi hai! Kripya 15MB se chhoti file chunein."); 
-            e.target.value = ""; return; 
-        }
         
         let attachBtn = document.getElementById("studentAttachBtn");
         let sendBtn = document.getElementById("studentSendBtn");
@@ -1412,30 +1396,29 @@
         attachBtn.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
         attachBtn.disabled = true; sendBtn.disabled = true;
 
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', UPLOAD_PRESET);
+
         try {
-            let base64Data = await getBase64(file);
-            let response = await fetch(GAS_UPLOAD_URL, {
+            let response = await fetch(CLOUDINARY_URL, {
                 method: "POST",
-                body: JSON.stringify({
-                    filename: file.name,
-                    mimeType: file.type,
-                    base64: base64Data
-                })
+                body: formData
             });
             
             let result = await response.json();
             
-            if(result.success) {
+            if(result.secure_url) {
                 push(ref(db, 'messages/' + activeSessionKey), { 
                     sender: 'student', 
                     text: "", 
-                    fileUrl: result.fileUrl,
-                    fileType: result.mimeType,
+                    fileUrl: result.secure_url,
+                    fileType: file.type,
                     timestamp: Date.now(),
                     status: 'sent' 
                 });
             } else {
-                alert("Upload Failed: " + result.error);
+                alert("Upload Failed: " + (result.error ? result.error.message : "Unknown error"));
             }
         } catch(err) {
             alert("Upload Error! Internet connection check karein.");
@@ -1548,17 +1531,15 @@
                         }
                     }
 
-                    // --- MEDIA RENDERING LOGIC ---
+                    // --- DIRECT CLOUDINARY MEDIA RENDERING ---
                     let contentHtml = escapeHtml(m.text || "");
                     if (m.fileUrl) {
-                        let directUrl = m.fileUrl.replace("export=view", "export=download");
-                        
                         if (m.fileType && m.fileType.startsWith('image/')) {
-                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${directUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${m.fileUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
                         } else if (m.fileType && m.fileType.startsWith('video/')) {
-                            contentHtml += `<div style="margin-top:2px;"><video src="${directUrl}" controls class="chat-media-video"></video></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><video src="${m.fileUrl}" controls class="chat-media-video"></video></div>`;
                         } else if (m.fileType && m.fileType.startsWith('audio/')) {
-                            contentHtml += `<div style="margin-top:2px;"><audio src="${directUrl}" controls class="chat-media-audio"></audio></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><audio src="${m.fileUrl}" controls class="chat-media-audio"></audio></div>`;
                         } else {
                             contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank" style="color:#34b7f1; text-decoration:underline; font-weight:bold;"><i class="fas fa-file"></i> Open File</a></div>`;
                         }
