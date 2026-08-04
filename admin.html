@@ -60,10 +60,24 @@
     .msg-student { background: #334155; color: white; align-self: flex-start; border-bottom-left-radius: 0; }
     .msg-time { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 0.65rem; color: #cbd5e1; margin-top: 4px; }
     
-    .chat-input-box { display: flex; gap: 10px; padding: 15px; background: #1e293b; border-top: 1px solid #334155; border-radius: 0 0 12px 12px; }
+    .chat-input-box { display: flex; gap: 10px; padding: 15px; background: #1e293b; border-top: 1px solid #334155; border-radius: 0 0 12px 12px; align-items: center; }
     .chat-input-box input { flex: 1; background: #334155; border: none; padding: 12px 15px; border-radius: 25px; color: white; outline: none; }
-    .chat-input-box button { background: #25D366; border: none; width: 45px; height: 45px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+    .chat-input-box button.send-btn { background: #25D366; border: none; width: 45px; height: 45px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
     
+    /* EMOJI PICKER */
+    .emoji-btn { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: 0.2s; }
+    .emoji-btn:hover { color: #ffd966; }
+    .emoji-picker { 
+        display: none; position: absolute; bottom: 75px; left: 15px; 
+        background: #1e293b; border: 1px solid #334155; border-radius: 8px; 
+        padding: 10px; width: 280px; max-height: 200px; overflow-y: auto; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 1000; 
+        grid-template-columns: repeat(6, 1fr); gap: 5px; 
+    }
+    .emoji-picker.active { display: grid; }
+    .emoji-picker span { cursor: pointer; font-size: 1.4rem; text-align: center; padding: 5px; transition: 0.2s; border-radius: 5px; }
+    .emoji-picker span:hover { background: #334155; }
+
     .empty-chat { flex:1; display:flex; align-items:center; justify-content:center; color: #94a3b8; flex-direction: column; gap: 15px; }
     .empty-chat i { font-size: 3rem; opacity: 0.5; }
 </style>
@@ -100,15 +114,21 @@
                 <div class="chat-header-title"><span><i class="fas fa-comments"></i> Select a key to start chat</span></div>
                 <div class="chat-status-bar" id="studentStatus"></div>
             </div>
+            
             <div id="chatMessages">
                 <div class="empty-chat">
                     <i class="fas fa-inbox"></i>
                     <p>Koi chat select nahi ki gayi hai.</p>
                 </div>
             </div>
+
+            <!-- EMOJI PICKER DIV -->
+            <div class="emoji-picker" id="adminEmojiPicker"></div>
+
             <div class="chat-input-box" style="display: none;" id="chatInputArea">
-                <input type="text" id="adminMsgInput" placeholder="Type a message (Emojis supported)..." autocomplete="off">
-                <button id="adminSendBtn"><i class="fas fa-paper-plane"></i></button>
+                <button class="emoji-btn" id="adminEmojiBtn"><i class="far fa-smile"></i></button>
+                <input type="text" id="adminMsgInput" placeholder="Type a message..." autocomplete="off">
+                <button class="send-btn" id="adminSendBtn"><i class="fas fa-paper-plane"></i></button>
             </div>
         </div>
     </div>
@@ -137,6 +157,33 @@
     const ADMIN_PASSWORD = "Ankush@2026";
     
     function escapeHtml(str) { return str.replace(/[&<>]/g, m => m=='&'?'&amp;':m=='<'?'&lt;':'&gt;'); }
+
+    // --- EMOJI LOGIC ---
+    const emojis = ["😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😋","😛","😝","😜","🤪","🤓","😎","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤯","😳","😱","😨","😰","😥","😓","🤗","🤔","🤭","🤫","😶","😐","😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕","🤑","🤠","😈","👿","👻","💀","👽","👾","🤖","🎃","👍","👎","👏","🙌","👐","🤲","🤝","🙏","✌️","🤞","👆","👇","👈","👉","🔥","💯","❤️","💔"];
+    const emojiPicker = document.getElementById("adminEmojiPicker");
+    const msgInput = document.getElementById("adminMsgInput");
+
+    emojis.forEach(e => {
+        let span = document.createElement("span");
+        span.innerText = e;
+        span.onclick = () => {
+            msgInput.value += e;
+            msgInput.focus();
+        };
+        emojiPicker.appendChild(span);
+    });
+
+    document.getElementById("adminEmojiBtn").addEventListener("click", () => {
+        emojiPicker.classList.toggle("active");
+    });
+    
+    // Picker close karne ke liye agar bahar click ho
+    document.addEventListener("click", (e) => {
+        if (!e.target.closest("#adminEmojiBtn") && !e.target.closest("#adminEmojiPicker")) {
+            emojiPicker.classList.remove("active");
+        }
+    });
+    // -------------------
 
     document.getElementById("adminLoginBtn").addEventListener("click", tryLogin);
     document.getElementById("adminPassInput").addEventListener("keydown", (e) => { if (e.key === "Enter") tryLogin(); });
@@ -195,7 +242,7 @@
         currentKey = key;
         document.querySelector(".chat-header-title").innerHTML = `<span><i class="fas fa-hashtag"></i> Key: ${key}</span>`;
         document.getElementById("chatInputArea").style.display = "flex";
-        document.getElementById("adminMsgInput").focus();
+        msgInput.focus();
         
         document.querySelectorAll(".key-item").forEach(el => el.classList.remove("active"));
         if(event) event.currentTarget.classList.add("active");
@@ -207,13 +254,26 @@
         update(myKeyRef, { admin_status: 'online' });
         onDisconnect(myKeyRef).update({ admin_status: 'offline', admin_typing: false });
 
-        // Listen for Realtime messages & Mark Read
+        // Listen for Realtime messages & Mark Read + 12 HOUR AUTO DELETE
         onValue(ref(db, 'messages/' + key), (snapshot) => {
             msgBox.innerHTML = "";
             const msgs = snapshot.val();
+            
             if(msgs) {
+                const now = Date.now();
+                const twelveHoursInMs = 12 * 60 * 60 * 1000;
+                let updatesToPerform = {};
+                let hasDeletes = false;
+
                 Object.keys(msgs).forEach(msgId => {
                     let m = msgs[msgId];
+
+                    // 12-Hour Auto Delete Check
+                    if (now - m.timestamp > twelveHoursInMs) {
+                        updatesToPerform[msgId] = null; // Mark for deletion
+                        hasDeletes = true;
+                        return; // Skip rendering
+                    }
                     
                     // Mark student message as read since admin has opened chat
                     if(m.sender === 'student' && m.status !== 'read') {
@@ -235,6 +295,12 @@
 
                     msgBox.innerHTML += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${escapeHtml(m.text)}<span class="msg-time">${time} ${tickHtml}</span></div>`;
                 });
+
+                // Batch delete old messages silently from Firebase
+                if (hasDeletes) {
+                    update(ref(db, `messages/${key}`), updatesToPerform);
+                }
+
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
                  msgBox.innerHTML = `<div class="empty-chat"><p>Abhi tak koi message nahi aaya.</p></div>`;
@@ -257,26 +323,26 @@
     }
 
     function sendMessage() {
-        let input = document.getElementById("adminMsgInput");
-        let text = input.value.trim();
+        let text = msgInput.value.trim();
         if (text !== "" && currentKey) {
             push(ref(db, 'messages/' + currentKey), { 
                 sender: 'admin', 
                 text: text, 
                 timestamp: Date.now(),
-                status: 'sent' // Default sent status
+                status: 'sent' 
             });
-            input.value = "";
+            msgInput.value = "";
+            emojiPicker.classList.remove("active"); // Hide emoji picker on send
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: false });
         }
     }
 
     document.getElementById("adminSendBtn").addEventListener("click", sendMessage);
-    document.getElementById("adminMsgInput").addEventListener("keydown", (e) => { 
+    msgInput.addEventListener("keydown", (e) => { 
         if (e.key === "Enter") sendMessage(); 
     });
 
-    document.getElementById("adminMsgInput").addEventListener("input", () => {
+    msgInput.addEventListener("input", () => {
         if(currentKey) {
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: true });
             clearTimeout(typingTimer);
