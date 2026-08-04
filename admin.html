@@ -81,7 +81,7 @@
     .empty-chat { flex:1; display:flex; align-items:center; justify-content:center; color: #94a3b8; flex-direction: column; gap: 15px; }
     .empty-chat i { font-size: 3rem; opacity: 0.5; }
     
-    /* Media Attachment styling inside chat */
+    /* Media Attachment styling inside chat (Cloudinary renders directly) */
     .chat-media-img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; object-fit: contain; background: #0f172a;}
     .chat-media-video { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; background: #000; }
     .chat-media-audio { max-width: 220px; margin-top: 5px; outline: none; }
@@ -127,13 +127,11 @@
                 </div>
             </div>
 
-            <!-- EMOJI PICKER DIV -->
             <div class="emoji-picker" id="adminEmojiPicker"></div>
 
             <div class="chat-input-box" style="display: none;" id="chatInputArea">
                 <button class="action-icon-btn" id="adminEmojiBtn"><i class="far fa-smile"></i></button>
                 
-                <!-- ATTACHMENT BTN & HIDDEN INPUT -->
                 <button class="action-icon-btn" id="adminAttachBtn" title="Send Photo/Video/Audio"><i class="fas fa-paperclip"></i></button>
                 <input type="file" id="adminFileInput" accept="image/*,video/*,audio/*" style="display: none;">
 
@@ -158,9 +156,11 @@
         messagingSenderId: "697418784895",
         appId: "1:697418784895:web:c1f21e30d218a1cb3f9f4a"
     };
-    
-    // Yahan tumhari nai Google Apps Script (Drive wali) ka URL set kar diya hai
-    const GAS_UPLOAD_URL = "https://script.google.com/macros/s/AKfycbx4VYiTGjaGgNTsWXwUtKGvlKmApOX9b2FIshwWoJ4RExweCo8IO7WlEIGiK_f_xKUv/exec";
+
+    // CLOUDINARY CONFIG
+    const CLOUD_NAME = "tj76wasn";
+    const UPLOAD_PRESET = "live_support_media";
+    const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
@@ -195,76 +195,51 @@
         }
     });
 
-    // --- GOOGLE DRIVE MEDIA UPLOAD LOGIC ---
+    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
     document.getElementById("adminAttachBtn").addEventListener("click", () => {
         if(!currentKey) return;
         document.getElementById("adminFileInput").click();
     });
 
-    function getBase64(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.readAsDataURL(file);
-            reader.onload = () => {
-                let encoded = reader.result.toString().replace(/^data:(.*,)?/, '');
-                if ((encoded.length % 4) > 0) { encoded += '='.repeat(4 - (encoded.length % 4)); }
-                resolve(encoded);
-            };
-            reader.onerror = error => reject(error);
-        });
-    }
-
     document.getElementById("adminFileInput").addEventListener("change", async (e) => {
         let file = e.target.files[0];
         if(!file) return;
-        
-        // 15MB file size limit for Google Apps Script stability
-        if(file.size > 15 * 1024 * 1024) { 
-            alert("File size bahut badi hai! Kripya 15MB se chhoti file chunein."); 
-            e.target.value = ""; return; 
-        }
         
         let attachBtn = document.getElementById("adminAttachBtn");
         let sendBtn = document.getElementById("adminSendBtn");
         let originalIcon = attachBtn.innerHTML;
         
-        // Show spinner and lock buttons during upload
         attachBtn.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
         attachBtn.disabled = true; sendBtn.disabled = true;
 
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('upload_preset', UPLOAD_PRESET);
+
         try {
-            let base64Data = await getBase64(file);
-            
-            // Upload to Cloud (Google Drive) via Apps Script
-            let response = await fetch(GAS_UPLOAD_URL, {
+            let response = await fetch(CLOUDINARY_URL, {
                 method: "POST",
-                body: JSON.stringify({
-                    filename: file.name,
-                    mimeType: file.type,
-                    base64: base64Data
-                })
+                body: formData
             });
             
             let result = await response.json();
             
-            if(result.success) {
-                // Save link to Firebase chat
+            if(result.secure_url) {
                 push(ref(db, 'messages/' + currentKey), { 
                     sender: 'admin', 
                     text: "", 
-                    fileUrl: result.fileUrl,
-                    fileType: result.mimeType,
+                    fileUrl: result.secure_url,
+                    fileType: file.type, // image/png, video/mp4 etc.
                     timestamp: Date.now(),
                     status: 'sent' 
                 });
             } else {
-                alert("Upload Failed: " + result.error);
+                alert("Upload Failed: " + (result.error ? result.error.message : "Unknown error"));
             }
         } catch(err) {
             alert("Upload Error! Internet connection check karein.");
         }
         
-        // Reset UI
         attachBtn.innerHTML = originalIcon;
         attachBtn.disabled = false; sendBtn.disabled = false;
         e.target.value = ""; 
@@ -347,7 +322,6 @@
         if(currentStatusRef) off(currentStatusRef);
         currentStatusRef = ref(db, 'support_keys/' + key);
 
-        // Listen for Realtime messages & Media Rendering
         onValue(currentMessagesRef, (snapshot) => {
             const msgs = snapshot.val();
             let newHtmlString = ""; 
@@ -383,18 +357,15 @@
                         }
                     }
 
-                    // --- MEDIA RENDERING LOGIC ---
+                    // --- DIRECT CLOUDINARY MEDIA RENDERING ---
                     let contentHtml = escapeHtml(m.text || "");
                     if (m.fileUrl) {
-                        // "export=download" use kar rahe hain taaki device block na kare, iframe direct stream karega
-                        let directUrl = m.fileUrl.replace("export=view", "export=download");
-                        
                         if (m.fileType && m.fileType.startsWith('image/')) {
-                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${directUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${m.fileUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
                         } else if (m.fileType && m.fileType.startsWith('video/')) {
-                            contentHtml += `<div style="margin-top:2px;"><video src="${directUrl}" controls class="chat-media-video"></video></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><video src="${m.fileUrl}" controls class="chat-media-video"></video></div>`;
                         } else if (m.fileType && m.fileType.startsWith('audio/')) {
-                            contentHtml += `<div style="margin-top:2px;"><audio src="${directUrl}" controls class="chat-media-audio"></audio></div>`;
+                            contentHtml += `<div style="margin-top:2px;"><audio src="${m.fileUrl}" controls class="chat-media-audio"></audio></div>`;
                         } else {
                             contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank" style="color:#34b7f1; text-decoration:underline; font-weight:bold;"><i class="fas fa-file"></i> Open File</a></div>`;
                         }
@@ -414,7 +385,6 @@
             }
         });
 
-        // Listen for Student Presence & Typing
         onValue(currentStatusRef, (snapshot) => {
             const data = snapshot.val();
             if(data) {
@@ -430,32 +400,27 @@
     }
 
     function sendMessage() {
-        if(isSending) return; 
+        if(isSending) return;
         let text = msgInput.value.trim();
         
         if (text !== "" && currentKey) {
             isSending = true;
-            msgInput.value = ""; 
-            emojiPicker.classList.remove("active");
-            
             push(ref(db, 'messages/' + currentKey), { 
                 sender: 'admin', 
                 text: text, 
                 timestamp: Date.now(),
                 status: 'sent' 
             });
-            
+            msgInput.value = "";
+            emojiPicker.classList.remove("active");
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: false });
-            setTimeout(() => { isSending = false; }, 300); 
+            setTimeout(() => { isSending = false; }, 300);
         }
     }
 
     document.getElementById("adminSendBtn").addEventListener("click", sendMessage);
     msgInput.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter") {
-            e.preventDefault(); 
-            sendMessage(); 
-        }
+        if (e.key === "Enter") { e.preventDefault(); sendMessage(); }
     });
 
     msgInput.addEventListener("input", () => {
