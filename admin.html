@@ -137,7 +137,8 @@
 <!-- Firebase Modular SDK -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, set, push, onValue, serverTimestamp, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    // UPDATE: Humne off() ko import kiya taaki double rendering ko roka ja sake
+    import { getDatabase, ref, set, push, onValue, serverTimestamp, update, onDisconnect, off } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBUPIULkKxZx0d7sX6kag2Fa-nmkgjnDA8",
@@ -151,8 +152,13 @@
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
+    
+    // Variables for strict locking
     let currentKey = null;
     let typingTimer;
+    let isSending = false;
+    let currentMessagesRef = null;
+    let currentStatusRef = null;
 
     const ADMIN_PASSWORD = "Ankush@2026";
     
@@ -177,7 +183,6 @@
         emojiPicker.classList.toggle("active");
     });
     
-    // Picker close karne ke liye agar bahar click ho
     document.addEventListener("click", (e) => {
         if (!e.target.closest("#adminEmojiBtn") && !e.target.closest("#adminEmojiPicker")) {
             emojiPicker.classList.remove("active");
@@ -254,10 +259,17 @@
         update(myKeyRef, { admin_status: 'online' });
         onDisconnect(myKeyRef).update({ admin_status: 'offline', admin_typing: false });
 
+        // FIX: Purane listener hataye taaki UI double paint na ho
+        if(currentMessagesRef) off(currentMessagesRef);
+        currentMessagesRef = ref(db, 'messages/' + key);
+        
+        if(currentStatusRef) off(currentStatusRef);
+        currentStatusRef = ref(db, 'support_keys/' + key);
+
         // Listen for Realtime messages & Mark Read + 12 HOUR AUTO DELETE
-        onValue(ref(db, 'messages/' + key), (snapshot) => {
-            msgBox.innerHTML = "";
+        onValue(currentMessagesRef, (snapshot) => {
             const msgs = snapshot.val();
+            let newHtmlString = ""; // DOM manipulation buffer
             
             if(msgs) {
                 const now = Date.now();
@@ -268,14 +280,12 @@
                 Object.keys(msgs).forEach(msgId => {
                     let m = msgs[msgId];
 
-                    // 12-Hour Auto Delete Check
                     if (now - m.timestamp > twelveHoursInMs) {
-                        updatesToPerform[msgId] = null; // Mark for deletion
+                        updatesToPerform[msgId] = null; 
                         hasDeletes = true;
-                        return; // Skip rendering
+                        return; 
                     }
                     
-                    // Mark student message as read since admin has opened chat
                     if(m.sender === 'student' && m.status !== 'read') {
                         update(ref(db, `messages/${key}/${msgId}`), { status: 'read' });
                     }
@@ -283,24 +293,24 @@
                     let time = new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     let isAdmin = m.sender === 'admin';
                     
-                    // Read Receipts Logic
                     let tickHtml = '';
                     if (isAdmin) {
                         if (m.status === 'read') {
-                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; // Blue Double Tick
+                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; 
                         } else {
-                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; // Single Grey Tick
+                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; 
                         }
                     }
 
-                    msgBox.innerHTML += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${escapeHtml(m.text)}<span class="msg-time">${time} ${tickHtml}</span></div>`;
+                    newHtmlString += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${escapeHtml(m.text)}<span class="msg-time">${time} ${tickHtml}</span></div>`;
                 });
 
-                // Batch delete old messages silently from Firebase
                 if (hasDeletes) {
                     update(ref(db, `messages/${key}`), updatesToPerform);
                 }
 
+                // UI update ek baar mein
+                msgBox.innerHTML = newHtmlString;
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
                  msgBox.innerHTML = `<div class="empty-chat"><p>Abhi tak koi message nahi aaya.</p></div>`;
@@ -308,7 +318,7 @@
         });
 
         // Listen for Student Presence & Typing
-        onValue(ref(db, 'support_keys/' + key), (snapshot) => {
+        onValue(currentStatusRef, (snapshot) => {
             const data = snapshot.val();
             if(data) {
                 if(data.student_typing) {
@@ -323,23 +333,32 @@
     }
 
     function sendMessage() {
+        if(isSending) return; // Strict lock against double clicks
         let text = msgInput.value.trim();
+        
         if (text !== "" && currentKey) {
+            isSending = true;
+            msgInput.value = ""; // Clear input immediately
+            emojiPicker.classList.remove("active");
+            
             push(ref(db, 'messages/' + currentKey), { 
                 sender: 'admin', 
                 text: text, 
                 timestamp: Date.now(),
                 status: 'sent' 
             });
-            msgInput.value = "";
-            emojiPicker.classList.remove("active"); // Hide emoji picker on send
+            
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: false });
+            setTimeout(() => { isSending = false; }, 300); // 300ms cooldown
         }
     }
 
     document.getElementById("adminSendBtn").addEventListener("click", sendMessage);
     msgInput.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter") sendMessage(); 
+        if (e.key === "Enter") {
+            e.preventDefault(); // Default Enter behaviour roko jisse double send na ho
+            sendMessage(); 
+        }
     });
 
     msgInput.addEventListener("input", () => {
