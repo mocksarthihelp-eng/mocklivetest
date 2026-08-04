@@ -430,7 +430,7 @@
     </div>
 </div>
 
-<!-- 🆕 LIVE SUPPORT WIDGET (Firebase Chat with Emojis, Auto-Delete & Read Receipts) -->
+<!-- 🆕 LIVE SUPPORT WIDGET -->
 <div class="livesupport-fab" id="lsFabBtn" title="Live Support">
     <i class="fas fa-headset"></i>
 </div>
@@ -1315,10 +1315,11 @@
     loadData(); 
 </script>
 
-<!-- 🆕 Firebase Live Support Logic with Emoji, Tick System & 12h Auto-Delete -->
+<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, get, push, onValue, update, onDisconnect } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    // IMPORTING off() TO PREVENT DOUBLE LISTENERS
+    import { getDatabase, ref, get, push, onValue, update, onDisconnect, off } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBUPIULkKxZx0d7sX6kag2Fa-nmkgjnDA8",
@@ -1334,6 +1335,11 @@
     const db = getDatabase(app);
     let activeSessionKey = null;
     let studentTypingTimer;
+    
+    // NEW VARS FOR FIXING DOUBLE MESSAGES
+    let isSending = false;
+    let currentMessagesRef = null;
+    let currentStatusRef = null;
 
     // --- EMOJI LOGIC ---
     const emojis = ["😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😋","😛","😝","😜","🤪","🤓","😎","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤯","😳","😱","😨","😰","😥","😓","🤗","🤔","🤭","🤫","😶","😐","😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕","🤑","🤠","😈","👿","👻","💀","👽","👾","🤖","🎃","👍","👎","👏","🙌","👐","🤲","🤝","🙏","✌️","🤞","👆","👇","👈","👉","🔥","💯","❤️","💔"];
@@ -1421,10 +1427,17 @@
         const msgBox = document.getElementById("studentChatMessages");
         const adminStatusBox = document.getElementById("adminStatusDisplay");
 
-        // Message Sync & Mark Admin Messages as Read + 12h Auto Delete Check
-        onValue(ref(db, 'messages/' + key), (snapshot) => {
-            msgBox.innerHTML = "";
+        // Clear previous listeners to stop double UI rendering
+        if(currentMessagesRef) off(currentMessagesRef);
+        currentMessagesRef = ref(db, 'messages/' + key);
+
+        if(currentStatusRef) off(currentStatusRef);
+        currentStatusRef = ref(db, 'support_keys/' + key);
+
+        // Message Sync & Batch Rendering
+        onValue(currentMessagesRef, (snapshot) => {
             const msgs = snapshot.val();
+            let newHtmlString = ""; // DOM manipulation buffer
             
             if(msgs) {
                 const now = Date.now();
@@ -1435,14 +1448,12 @@
                 Object.keys(msgs).forEach(msgId => {
                     let m = msgs[msgId];
                     
-                    // 12-Hour Auto Delete Check
                     if (now - m.timestamp > twelveHoursInMs) {
-                        updatesToPerform[msgId] = null; // Mark for deletion
+                        updatesToPerform[msgId] = null; 
                         hasDeletes = true;
-                        return; // Skip rendering
+                        return; 
                     }
                     
-                    // Agar message admin ka hai aur unread hai, toh usko 'read' mark kar do
                     if(m.sender === 'admin' && m.status !== 'read') {
                         update(ref(db, `messages/${key}/${msgId}`), { status: 'read' });
                     }
@@ -1450,30 +1461,32 @@
                     let time = new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     let isStudent = m.sender === 'student';
                     
-                    // Read Receipts Logic
                     let tickHtml = '';
                     if (isStudent) {
                         if (m.status === 'read') {
-                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; // Blue double tick
+                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; 
                         } else {
-                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; // Single grey tick
+                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; 
                         }
                     }
 
-                    msgBox.innerHTML += `<div class="chat-bubble ${isStudent ? 'student' : 'admin'}">${escapeHtml(m.text)}<span class="bubble-time">${time} ${tickHtml}</span></div>`;
+                    newHtmlString += `<div class="chat-bubble ${isStudent ? 'student' : 'admin'}">${escapeHtml(m.text)}<span class="bubble-time">${time} ${tickHtml}</span></div>`;
                 });
                 
-                // Batch delete old messages silently from Firebase
                 if (hasDeletes) {
                     update(ref(db, `messages/${key}`), updatesToPerform);
                 }
 
+                // Render in one go
+                msgBox.innerHTML = newHtmlString;
                 msgBox.scrollTop = msgBox.scrollHeight;
+            } else {
+                msgBox.innerHTML = "";
             }
         });
 
         // Listen for Admin Presence & Typing
-        onValue(ref(db, 'support_keys/' + key), (snapshot) => {
+        onValue(currentStatusRef, (snapshot) => {
             const data = snapshot.val();
             if(data) {
                 if(data.admin_typing) {
@@ -1488,23 +1501,34 @@
     }
 
     function sendStudentMessage() {
+        if(isSending) return; // Prevent double trigger
+        
         let text = msgInput.value.trim();
         if (text !== "" && activeSessionKey) {
+            isSending = true;
+            msgInput.value = ""; // Clear immediately
+            emojiPicker.classList.remove("active");
+            
             push(ref(db, 'messages/' + activeSessionKey), { 
                 sender: 'student', 
                 text: text, 
                 timestamp: Date.now(),
                 status: 'sent' 
             });
-            msgInput.value = "";
-            emojiPicker.classList.remove("active"); // Hide picker on send
+            
             update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: false });
+            
+            // Release lock after 300ms
+            setTimeout(() => { isSending = false; }, 300);
         }
     }
 
     document.getElementById("studentSendBtn").addEventListener("click", sendStudentMessage);
     msgInput.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter") sendStudentMessage(); 
+        if (e.key === "Enter") {
+            e.preventDefault(); // Stop default browser enter action
+            sendStudentMessage(); 
+        }
     });
 
     msgInput.addEventListener("input", () => {
