@@ -179,13 +179,18 @@
         }
         .livesupport-panel.open { display: block; animation: lsSlideUp 0.25s ease; }
         @keyframes lsSlideUp { from { opacity:0; transform: translateY(15px); } to { opacity:1; transform: translateY(0); } }
+        
         .ls-panel-header {
             background: linear-gradient(135deg, #128C7E, #075E54); padding: 14px 16px;
             display: flex; align-items: center; justify-content: space-between; color: white;
         }
         .ls-panel-header h4 { font-size: 1rem; font-weight: 800; display:flex; align-items:center; gap:8px; }
-        .ls-panel-header i.ls-close { cursor: pointer; opacity: 0.85; font-size: 1.1rem; }
-        .ls-panel-header i.ls-close:hover { opacity: 1; }
+        
+        /* NEW: Header action icons (Camera, Trash, Close) */
+        .ls-action-icon { cursor: pointer; opacity: 0.85; font-size: 1.1rem; transition: 0.2s; display: flex; align-items: center; justify-content: center;}
+        .ls-action-icon:hover { opacity: 1; color: #ffd966; }
+        .ls-action-icon.danger:hover { color: #ef4444; }
+
         .ls-panel-body { padding: 18px 16px; display: flex; flex-direction: column; gap: 12px; }
         @media (max-width: 480px) {
             .livesupport-panel { right: 14px; bottom: 88px; }
@@ -203,7 +208,7 @@
         .chat-media-video { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 5px; background: #000; }
         .chat-media-audio { max-width: 200px; margin-top: 5px; outline: none; }
 
-        /* Icons & Emoji Picker Styles */
+        /* Emoji Picker Styles (Student) */
         .ls-emoji-btn { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: 0.2s; padding-right: 5px; }
         .ls-emoji-btn:hover { color: #ffd966; }
         .ls-emoji-picker { 
@@ -444,7 +449,15 @@
     <div class="ls-panel-header" style="flex-direction: column; align-items: stretch; gap: 5px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h4><i class="fas fa-headset"></i> Live Support</h4>
-            <i class="fas fa-times ls-close" id="lsCloseBtn" style="cursor: pointer;"></i>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <!-- 📸 🧹 Header Icons (Hidden natively until chat opens) -->
+                <span id="lsHeaderIcons" style="display:none; gap:12px; align-items:center;">
+                    <i class="fas fa-camera ls-action-icon" id="studentHeaderCameraBtn" title="Direct Camera"></i>
+                    <input type="file" id="studentCameraInput" accept="image/*" capture="environment" style="display: none;">
+                    <i class="fas fa-trash-alt ls-action-icon danger" id="studentClearChatBtn" title="Clear Chat for Both"></i>
+                </span>
+                <i class="fas fa-times ls-close" id="lsCloseBtn" style="cursor: pointer; margin-left: 5px;"></i>
+            </div>
         </div>
         <div id="adminStatusDisplay" style="display:none; font-size: 0.75rem; font-weight: 600; color: #ffd966;"></div>
     </div>
@@ -468,7 +481,7 @@
 
         <div style="display: flex; gap: 8px; padding: 10px; background: #1e293b; border-top: 1px solid #334155; align-items: center;">
             <button class="ls-emoji-btn" id="studentEmojiBtn"><i class="far fa-smile"></i></button>
-            <button class="ls-emoji-btn" id="studentAttachBtn" title="Send Photo/Video/Audio"><i class="fas fa-paperclip"></i></button>
+            <button class="ls-emoji-btn" id="studentAttachBtn" title="Send Media/File"><i class="fas fa-paperclip"></i></button>
             
             <input type="file" id="studentFileInput" accept="image/*,video/*,audio/*" style="display: none;">
             
@@ -1323,10 +1336,10 @@
     loadData(); 
 </script>
 
-<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes & Cloudinary Media Upload -->
+<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes, MEDIA UPLOAD & CLEAR CHAT -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, get, push, onValue, update, onDisconnect, off } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    import { getDatabase, ref, get, push, onValue, update, onDisconnect, off, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBUPIULkKxZx0d7sX6kag2Fa-nmkgjnDA8",
@@ -1379,33 +1392,38 @@
         }
     });
 
-    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
-    document.getElementById("studentAttachBtn").addEventListener("click", () => {
+    // --- CLEAR CHAT (FOR BOTH) LOGIC ---
+    document.getElementById("studentClearChatBtn").addEventListener("click", () => {
         if(!activeSessionKey) return;
-        document.getElementById("studentFileInput").click();
+        let confirmClear = confirm("Kya aap sach mein saari chat delete karna chahte hain?");
+        if(confirmClear) {
+            remove(ref(db, 'messages/' + activeSessionKey)).then(() => {
+                // UI automatically clear ho jayega Firebase real-time sync ki wajah se
+                document.getElementById("studentChatMessages").innerHTML = `<div class="empty-chat"><i class="fas fa-broom"></i><p>Chat cleared successfully!</p></div>`;
+            }).catch((err) => {
+                alert("Error clearing chat!");
+            });
+        }
     });
 
-    document.getElementById("studentFileInput").addEventListener("change", async (e) => {
-        let file = e.target.files[0];
+    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
+    async function uploadToCloudinary(file, loadingBtnElement, originalIconClass) {
         if(!file) return;
-        
-        let attachBtn = document.getElementById("studentAttachBtn");
-        let sendBtn = document.getElementById("studentSendBtn");
-        let originalIcon = attachBtn.innerHTML;
-        
-        attachBtn.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
-        attachBtn.disabled = true; sendBtn.disabled = true;
+        if(file.size > 15 * 1024 * 1024) { 
+            alert("File size bahut badi hai! Kripya 15MB se chhoti file chunein."); return; 
+        }
+
+        let originalHtml = loadingBtnElement.innerHTML;
+        loadingBtnElement.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
+        loadingBtnElement.disabled = true;
+        document.getElementById("studentSendBtn").disabled = true;
 
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', UPLOAD_PRESET);
 
         try {
-            let response = await fetch(CLOUDINARY_URL, {
-                method: "POST",
-                body: formData
-            });
-            
+            let response = await fetch(CLOUDINARY_URL, { method: "POST", body: formData });
             let result = await response.json();
             
             if(result.secure_url) {
@@ -1413,7 +1431,7 @@
                     sender: 'student', 
                     text: "", 
                     fileUrl: result.secure_url,
-                    fileType: file.type,
+                    fileType: file.type, 
                     timestamp: Date.now(),
                     status: 'sent' 
                 });
@@ -1424,11 +1442,30 @@
             alert("Upload Error! Internet connection check karein.");
         }
         
-        attachBtn.innerHTML = originalIcon;
-        attachBtn.disabled = false; sendBtn.disabled = false;
+        loadingBtnElement.innerHTML = originalHtml;
+        loadingBtnElement.disabled = false;
+        document.getElementById("studentSendBtn").disabled = false;
+    }
+
+    // GALLERY ATTACHMENT
+    document.getElementById("studentAttachBtn").addEventListener("click", () => {
+        if(!activeSessionKey) return;
+        document.getElementById("studentFileInput").click();
+    });
+    document.getElementById("studentFileInput").addEventListener("change", (e) => {
+        uploadToCloudinary(e.target.files[0], document.getElementById("studentAttachBtn"), '<i class="fas fa-paperclip"></i>');
         e.target.value = ""; 
     });
 
+    // DIRECT CAMERA ATTACHMENT
+    document.getElementById("studentHeaderCameraBtn").addEventListener("click", () => {
+        if(!activeSessionKey) return;
+        document.getElementById("studentCameraInput").click();
+    });
+    document.getElementById("studentCameraInput").addEventListener("change", (e) => {
+        uploadToCloudinary(e.target.files[0], document.getElementById("studentHeaderCameraBtn"), '<i class="fas fa-camera"></i>');
+        e.target.value = ""; 
+    });
 
     // --- MAIN CHAT UI LOGIC ---
     document.getElementById("lsFabBtn").addEventListener("click", () => { 
@@ -1439,9 +1476,11 @@
             document.getElementById("lsKeyEntryArea").style.display = "block";
             document.getElementById("lsChatArea").style.display = "none";
             document.getElementById("adminStatusDisplay").style.display = "none";
+            document.getElementById("lsHeaderIcons").style.display = "none"; // Hide icons
             document.getElementById("studentKeyInput").focus();
         } else {
             update(ref(db, 'support_keys/' + activeSessionKey), { student_status: 'online' });
+            document.getElementById("lsHeaderIcons").style.display = "flex"; // Show icons
         }
     });
 
@@ -1458,6 +1497,7 @@
         document.getElementById("studentMsgInput").value = ""; 
         document.getElementById("lsChatArea").style.display = "none";
         document.getElementById("adminStatusDisplay").style.display = "none";
+        document.getElementById("lsHeaderIcons").style.display = "none"; // Hide icons
         document.getElementById("keyErrorMsg").style.display = "none";
         document.getElementById("lsKeyEntryArea").style.display = "block";
         emojiPicker.classList.remove("active");
@@ -1475,6 +1515,7 @@
             document.getElementById("lsKeyEntryArea").style.display = "none";
             document.getElementById("lsChatArea").style.display = "flex";
             document.getElementById("adminStatusDisplay").style.display = "block";
+            document.getElementById("lsHeaderIcons").style.display = "flex"; // Show icons
             loadStudentChat(key);
         } else { 
             errorMsg.style.display = "block"; 
@@ -1555,7 +1596,7 @@
                 msgBox.innerHTML = newHtmlString;
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
-                msgBox.innerHTML = "";
+                msgBox.innerHTML = `<div class="empty-chat"><p>Yahan abhi koi message nahi hai.</p></div>`;
             }
         });
 
