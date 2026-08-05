@@ -46,10 +46,10 @@
     .key-item.active { background: #075E54; color: white; border-left: 4px solid #25D366; }
     
     /* CHAT AREA */
-    .chat-area { flex: 1; background: #0f172a; border-radius: 12px; display: flex; flex-direction: column; border: 1px solid #334155; position: relative; }
+    .chat-area { flex: 1; background: #0f172a; border-radius: 12px; display: flex; flex-direction: column; border: 1px solid #334155; position: relative; overflow: hidden; }
     
     /* MODIFIED HEADER */
-    .chat-header { background: #1e293b; padding: 15px; border-bottom: 1px solid #334155; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .chat-header { background: #1e293b; padding: 15px; border-bottom: 1px solid #334155; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;}
     .chat-header-info { display: flex; flex-direction: column; gap: 5px; }
     .chat-header-title { font-weight: bold; }
     .chat-status-bar { font-size: 0.8rem; font-weight: 600; min-height: 15px; }
@@ -65,12 +65,34 @@
     .status-typing { color: #3b82f6; font-style: italic; }
     
     #chatMessages { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+    
+    /* MESSAGE BUBBLES & ACTIONS */
     .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; position: relative; }
     .msg-admin { background: #075E54; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
     .msg-student { background: #334155; color: white; align-self: flex-start; border-bottom-left-radius: 0; }
-    .msg-time { display: flex; align-items: center; justify-content: flex-end; gap: 4px; font-size: 0.65rem; color: #cbd5e1; margin-top: 4px; }
+    .msg-time { display: flex; align-items: center; justify-content: flex-end; gap: 6px; font-size: 0.65rem; color: #cbd5e1; margin-top: 4px; }
     
-    .chat-input-box { display: flex; gap: 10px; padding: 15px; background: #1e293b; border-top: 1px solid #334155; border-radius: 0 0 12px 12px; align-items: center; }
+    .msg-controls { display: flex; gap: 8px; opacity: 0.6; transition: 0.2s; }
+    .msg:hover .msg-controls { opacity: 1; }
+    .msg-btn { cursor: pointer; transition: 0.2s; font-size: 0.75rem; }
+    .msg-btn:hover { color: #fff; transform: scale(1.1); }
+    .msg-btn.reply:hover { color: #34b7f1; }
+    .msg-btn.delete:hover { color: #ef4444; }
+
+    /* REPLY ATTACHMENT IN BUBBLE */
+    .replied-msg-box { background: rgba(0,0,0,0.25); border-left: 4px solid #25D366; padding: 6px 10px; border-radius: 6px; margin-bottom: 6px; font-size: 0.8rem; color: #cbd5e1; cursor: pointer; }
+    .replied-msg-box strong { color: #25D366; display: block; margin-bottom: 2px;}
+
+    /* INPUT SECTION & REPLY PREVIEW */
+    .chat-bottom-section { display: none; flex-direction: column; background: #1e293b; border-top: 1px solid #334155; border-radius: 0 0 12px 12px; }
+    
+    #replyPreviewBox { display: none; background: #334155; padding: 10px 15px; border-left: 4px solid #34b7f1; font-size: 0.85rem; color: #cbd5e1; position: relative; }
+    #replyPreviewName { font-weight: bold; color: #34b7f1; margin-bottom: 3px; }
+    #replyPreviewText { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 20px; }
+    .cancel-reply-btn { position: absolute; right: 15px; top: 15px; cursor: pointer; color: #ef4444; font-size: 1.1rem; transition: 0.2s; }
+    .cancel-reply-btn:hover { transform: scale(1.1); }
+
+    .chat-input-box { display: flex; gap: 10px; padding: 15px; align-items: center; }
     .chat-input-box input[type="text"] { flex: 1; background: #334155; border: none; padding: 12px 15px; border-radius: 25px; color: white; outline: none; }
     .chat-input-box button.send-btn { background: #25D366; border: none; width: 45px; height: 45px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink:0;}
     
@@ -78,7 +100,7 @@
     .action-icon-btn { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: 0.2s; }
     .action-icon-btn:hover { color: #ffd966; }
     .emoji-picker { 
-        display: none; position: absolute; bottom: 75px; left: 15px; 
+        display: none; position: absolute; bottom: 85px; left: 15px; 
         background: #1e293b; border: 1px solid #334155; border-radius: 8px; 
         padding: 10px; width: 280px; max-height: 200px; overflow-y: auto; 
         box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 1000; 
@@ -131,12 +153,11 @@
                     <div class="chat-status-bar" id="studentStatus"></div>
                 </div>
                 
-                <!-- NEW: HEADER ACTIONS (CAMERA & CLEAR CHAT) -->
                 <div class="header-actions" id="headerActionsBlock">
                     <button class="header-action-btn" id="adminHeaderCameraBtn" title="Direct Camera"><i class="fas fa-camera"></i></button>
-                    <!-- "capture='environment'" se mobile par direct pichla camera khulta hai -->
-                   <input type="file" id="adminCameraInput" accept="image/*" capture style="display: none;">
-                   
+                    <!-- "capture" attribute allows mobile to prompt for camera -->
+                    <input type="file" id="adminCameraInput" accept="image/*" capture style="display: none;">
+                    
                     <button class="header-action-btn danger" id="adminClearChatBtn" title="Clear Chat for Both"><i class="fas fa-trash-alt"></i></button>
                 </div>
             </div>
@@ -150,15 +171,24 @@
 
             <div class="emoji-picker" id="adminEmojiPicker"></div>
 
-            <div class="chat-input-box" style="display: none;" id="chatInputArea">
-                <button class="action-icon-btn" id="adminEmojiBtn"><i class="far fa-smile"></i></button>
+            <!-- CHAT BOTTOM SECTION (Preview + Input) -->
+            <div class="chat-bottom-section" id="chatBottomWrapper">
                 
-                <!-- GALLERY/FILE ATTACHMENT -->
-                <button class="action-icon-btn" id="adminAttachBtn" title="Send Gallery Media/File"><i class="fas fa-paperclip"></i></button>
-                <input type="file" id="adminFileInput" accept="image/*,video/*,audio/*" style="display: none;">
+                <div id="replyPreviewBox">
+                    <div id="replyPreviewName">Replying to...</div>
+                    <div id="replyPreviewText"></div>
+                    <i class="fas fa-times cancel-reply-btn" onclick="window.cancelReply()"></i>
+                </div>
 
-                <input type="text" id="adminMsgInput" placeholder="Type a message..." autocomplete="off">
-                <button class="send-btn" id="adminSendBtn"><i class="fas fa-paper-plane"></i></button>
+                <div class="chat-input-box" id="chatInputArea">
+                    <button class="action-icon-btn" id="adminEmojiBtn"><i class="far fa-smile"></i></button>
+                    
+                    <button class="action-icon-btn" id="adminAttachBtn" title="Send Gallery Media/File"><i class="fas fa-paperclip"></i></button>
+                    <input type="file" id="adminFileInput" accept="image/*,video/*,audio/*" style="display: none;">
+
+                    <input type="text" id="adminMsgInput" placeholder="Type a message..." autocomplete="off">
+                    <button class="send-btn" id="adminSendBtn"><i class="fas fa-paper-plane"></i></button>
+                </div>
             </div>
         </div>
     </div>
@@ -166,7 +196,6 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    // IMPORTED "remove" for Clear Chat Feature
     import { getDatabase, ref, set, push, onValue, serverTimestamp, update, onDisconnect, off, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
@@ -191,10 +220,35 @@
     let isSending = false;
     let currentMessagesRef = null;
     let currentStatusRef = null;
+    
+    // REPLY STATE
+    let replyingToData = null;
 
     const ADMIN_PASSWORD = "Ankush@2026";
     
     function escapeHtml(str) { return str.replace(/[&<>]/g, m => m=='&'?'&amp;':m=='<'?'&lt;':'&gt;'); }
+
+    // --- GLOBAL FUNCTIONS FOR MESSAGE ACTIONS ---
+    window.setReply = function(msgId, textSnippet, sender) {
+        replyingToData = { id: msgId, text: textSnippet, sender: sender };
+        document.getElementById("replyPreviewBox").style.display = "block";
+        document.getElementById("replyPreviewName").innerText = sender === 'admin' ? 'Replying to Yourself' : 'Replying to Student';
+        document.getElementById("replyPreviewText").innerText = textSnippet.substring(0, 60) + (textSnippet.length > 60 ? "..." : "");
+        document.getElementById("adminMsgInput").focus();
+    };
+
+    window.cancelReply = function() {
+        replyingToData = null;
+        document.getElementById("replyPreviewBox").style.display = "none";
+        document.getElementById("replyPreviewText").innerText = "";
+    };
+
+    window.deleteMessage = function(msgId) {
+        if(!currentKey) return;
+        if(confirm("Delete this message permanently?")) {
+            remove(ref(db, `messages/${currentKey}/${msgId}`));
+        }
+    };
 
     // --- EMOJI LOGIC ---
     const emojis = ["😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😋","😛","😝","😜","🤪","🤓","😎","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤯","😳","😱","😨","😰","😥","😓","🤗","🤔","🤭","🤫","😶","😐","😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕","🤑","🤠","😈","👿","👻","💀","👽","👾","🤖","🎃","👍","👎","👏","🙌","👐","🤲","🤝","🙏","✌️","🤞","👆","👇","👈","👉","🔥","💯","❤️","💔"];
@@ -219,17 +273,10 @@
     // --- CLEAR CHAT (FOR BOTH) LOGIC ---
     document.getElementById("adminClearChatBtn").addEventListener("click", () => {
         if(!currentKey) return;
-        
-        let confirmClear = confirm("Kya aap sach mein dono taraf (Admin + Student) se saari chat delete karna chahte hain?");
-        if(confirmClear) {
-            // Yeh command chalte hi dono screens turant khali ho jayengi
+        if(confirm("Kya aap sach mein dono taraf (Admin + Student) se saari chat delete karna chahte hain?")) {
             remove(ref(db, 'messages/' + currentKey)).then(() => {
-                // Optional UI alert
-                let msgBox = document.getElementById("chatMessages");
-                msgBox.innerHTML = `<div class="empty-chat"><i class="fas fa-broom"></i><p>Chat cleared successfully!</p></div>`;
-            }).catch((err) => {
-                alert("Error clearing chat!");
-            });
+                document.getElementById("chatMessages").innerHTML = `<div class="empty-chat"><i class="fas fa-broom"></i><p>Chat cleared successfully!</p></div>`;
+            }).catch(() => alert("Error clearing chat!"));
         }
     });
 
@@ -253,14 +300,19 @@
             let result = await response.json();
             
             if(result.secure_url) {
-                push(ref(db, 'messages/' + currentKey), { 
+                let msgObj = { 
                     sender: 'admin', 
                     text: "", 
                     fileUrl: result.secure_url,
                     fileType: file.type, 
                     timestamp: Date.now(),
                     status: 'sent' 
-                });
+                };
+                
+                // Add reply context if any
+                if(replyingToData) { msgObj.replyTo = replyingToData; window.cancelReply(); }
+                
+                push(ref(db, 'messages/' + currentKey), msgObj);
             } else {
                 alert("Upload Failed: " + (result.error ? result.error.message : "Unknown error"));
             }
@@ -351,8 +403,10 @@
 
         currentKey = key;
         document.getElementById("chatTitleText").innerHTML = `<span><i class="fas fa-hashtag"></i> Key: ${key}</span>`;
+        document.getElementById("chatBottomWrapper").style.display = "flex";
         document.getElementById("chatInputArea").style.display = "flex";
-        document.getElementById("headerActionsBlock").style.display = "flex"; // Show Header Icons
+        document.getElementById("headerActionsBlock").style.display = "flex";
+        window.cancelReply(); // Reset reply state when opening new chat
         msgInput.focus();
         
         document.querySelectorAll(".key-item").forEach(el => el.classList.remove("active"));
@@ -406,7 +460,21 @@
                         }
                     }
 
-                    let contentHtml = escapeHtml(m.text || "");
+                    let contentHtml = "";
+                    
+                    // IF MESSAGE IS A REPLY, RENDER PREVIEW BLOCK FIRST
+                    if (m.replyTo) {
+                        let repName = m.replyTo.sender === 'admin' ? 'You' : 'Student';
+                        contentHtml += `<div class="replied-msg-box">
+                                            <strong>${repName}</strong>
+                                            ${escapeHtml(m.replyTo.text)}
+                                        </div>`;
+                    }
+
+                    // NORMAL MESSAGE CONTENT
+                    let textContent = escapeHtml(m.text || "");
+                    let textSnippetForReply = textContent || "📷 Media File";
+
                     if (m.fileUrl) {
                         if (m.fileType && m.fileType.startsWith('image/')) {
                             contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${m.fileUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
@@ -418,8 +486,20 @@
                             contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank" style="color:#34b7f1; text-decoration:underline; font-weight:bold;"><i class="fas fa-file"></i> Open File</a></div>`;
                         }
                     }
+                    contentHtml += textContent;
 
-                    newHtmlString += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">${contentHtml}<span class="msg-time">${time} ${tickHtml}</span></div>`;
+                    // MESSAGE ACTIONS (REPLY & DELETE)
+                    let actionsHtml = `
+                        <div class="msg-controls">
+                            <i class="fas fa-reply msg-btn reply" title="Reply" onclick="window.setReply('${msgId}', '${textSnippetForReply.replace(/'/g, "\\'")}', '${m.sender}')"></i>
+                            <i class="fas fa-trash msg-btn delete" title="Delete" onclick="window.deleteMessage('${msgId}')"></i>
+                        </div>
+                    `;
+
+                    newHtmlString += `<div class="msg ${isAdmin ? 'msg-admin' : 'msg-student'}">
+                                        ${contentHtml}
+                                        <span class="msg-time">${actionsHtml} ${time} ${tickHtml}</span>
+                                      </div>`;
                 });
 
                 if (hasDeletes) {
@@ -429,7 +509,6 @@
                 msgBox.innerHTML = newHtmlString;
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
-                 // Agar dataset empty ya null ho jaye (Clear Chat karne ke baad)
                  msgBox.innerHTML = `<div class="empty-chat"><i class="fas fa-inbox"></i><p>Yahan abhi koi message nahi hai.</p></div>`;
             }
         });
@@ -454,12 +533,21 @@
         
         if (text !== "" && currentKey) {
             isSending = true;
-            push(ref(db, 'messages/' + currentKey), { 
+            
+            let msgObj = { 
                 sender: 'admin', 
                 text: text, 
                 timestamp: Date.now(),
                 status: 'sent' 
-            });
+            };
+            
+            if(replyingToData) {
+                msgObj.replyTo = replyingToData;
+                window.cancelReply(); // Reset reply state after sending
+            }
+
+            push(ref(db, 'messages/' + currentKey), msgObj);
+            
             msgInput.value = "";
             emojiPicker.classList.remove("active");
             update(ref(db, 'support_keys/' + currentKey), { admin_typing: false });
