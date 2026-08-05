@@ -47,9 +47,19 @@
     
     /* CHAT AREA */
     .chat-area { flex: 1; background: #0f172a; border-radius: 12px; display: flex; flex-direction: column; border: 1px solid #334155; position: relative; }
-    .chat-header { background: #1e293b; padding: 15px; border-bottom: 1px solid #334155; border-radius: 12px 12px 0 0; display: flex; flex-direction: column; gap: 5px; }
-    .chat-header-title { font-weight: bold; display: flex; justify-content: space-between; }
+    
+    /* MODIFIED HEADER */
+    .chat-header { background: #1e293b; padding: 15px; border-bottom: 1px solid #334155; border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .chat-header-info { display: flex; flex-direction: column; gap: 5px; }
+    .chat-header-title { font-weight: bold; }
     .chat-status-bar { font-size: 0.8rem; font-weight: 600; min-height: 15px; }
+    
+    /* HEADER ACTION BUTTONS */
+    .header-actions { display: none; gap: 10px; align-items: center; }
+    .header-action-btn { background: #334155; border: none; color: white; padding: 10px 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; }
+    .header-action-btn:hover { background: #475569; color: #25D366; }
+    .header-action-btn.danger:hover { color: #ef4444; }
+
     .status-online { color: #25D366; }
     .status-offline { color: #94a3b8; }
     .status-typing { color: #3b82f6; font-style: italic; }
@@ -81,7 +91,7 @@
     .empty-chat { flex:1; display:flex; align-items:center; justify-content:center; color: #94a3b8; flex-direction: column; gap: 15px; }
     .empty-chat i { font-size: 3rem; opacity: 0.5; }
     
-    /* Media Attachment styling inside chat (Cloudinary renders directly) */
+    /* Media Attachment styling inside chat */
     .chat-media-img { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; cursor: pointer; object-fit: contain; background: #0f172a;}
     .chat-media-video { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 5px; background: #000; }
     .chat-media-audio { max-width: 220px; margin-top: 5px; outline: none; }
@@ -116,8 +126,19 @@
 
         <div class="chat-area">
             <div class="chat-header" id="chatHeader">
-                <div class="chat-header-title"><span><i class="fas fa-comments"></i> Select a key to start chat</span></div>
-                <div class="chat-status-bar" id="studentStatus"></div>
+                <div class="chat-header-info">
+                    <div class="chat-header-title" id="chatTitleText"><span><i class="fas fa-comments"></i> Select a key to start chat</span></div>
+                    <div class="chat-status-bar" id="studentStatus"></div>
+                </div>
+                
+                <!-- NEW: HEADER ACTIONS (CAMERA & CLEAR CHAT) -->
+                <div class="header-actions" id="headerActionsBlock">
+                    <button class="header-action-btn" id="adminHeaderCameraBtn" title="Direct Camera"><i class="fas fa-camera"></i></button>
+                    <!-- "capture='environment'" se mobile par direct pichla camera khulta hai -->
+                    <input type="file" id="adminCameraInput" accept="image/*" capture="environment" style="display: none;">
+                    
+                    <button class="header-action-btn danger" id="adminClearChatBtn" title="Clear Chat for Both"><i class="fas fa-trash-alt"></i></button>
+                </div>
             </div>
             
             <div id="chatMessages">
@@ -132,7 +153,8 @@
             <div class="chat-input-box" style="display: none;" id="chatInputArea">
                 <button class="action-icon-btn" id="adminEmojiBtn"><i class="far fa-smile"></i></button>
                 
-                <button class="action-icon-btn" id="adminAttachBtn" title="Send Photo/Video/Audio"><i class="fas fa-paperclip"></i></button>
+                <!-- GALLERY/FILE ATTACHMENT -->
+                <button class="action-icon-btn" id="adminAttachBtn" title="Send Gallery Media/File"><i class="fas fa-paperclip"></i></button>
                 <input type="file" id="adminFileInput" accept="image/*,video/*,audio/*" style="display: none;">
 
                 <input type="text" id="adminMsgInput" placeholder="Type a message..." autocomplete="off">
@@ -142,10 +164,10 @@
     </div>
 </div>
 
-<!-- Firebase Modular SDK & App Logic -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, set, push, onValue, serverTimestamp, update, onDisconnect, off } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    // IMPORTED "remove" for Clear Chat Feature
+    import { getDatabase, ref, set, push, onValue, serverTimestamp, update, onDisconnect, off, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBUPIULkKxZx0d7sX6kag2Fa-nmkgjnDA8",
@@ -157,7 +179,6 @@
         appId: "1:697418784895:web:c1f21e30d218a1cb3f9f4a"
     };
 
-    // CLOUDINARY CONFIG
     const CLOUD_NAME = "tj76wasn";
     const UPLOAD_PRESET = "live_support_media";
     const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`;
@@ -195,33 +216,40 @@
         }
     });
 
-    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
-    document.getElementById("adminAttachBtn").addEventListener("click", () => {
+    // --- CLEAR CHAT (FOR BOTH) LOGIC ---
+    document.getElementById("adminClearChatBtn").addEventListener("click", () => {
         if(!currentKey) return;
-        document.getElementById("adminFileInput").click();
+        
+        let confirmClear = confirm("Kya aap sach mein dono taraf (Admin + Student) se saari chat delete karna chahte hain?");
+        if(confirmClear) {
+            // Yeh command chalte hi dono screens turant khali ho jayengi
+            remove(ref(db, 'messages/' + currentKey)).then(() => {
+                // Optional UI alert
+                let msgBox = document.getElementById("chatMessages");
+                msgBox.innerHTML = `<div class="empty-chat"><i class="fas fa-broom"></i><p>Chat cleared successfully!</p></div>`;
+            }).catch((err) => {
+                alert("Error clearing chat!");
+            });
+        }
     });
 
-    document.getElementById("adminFileInput").addEventListener("change", async (e) => {
-        let file = e.target.files[0];
+    // --- CLOUDINARY UPLOAD FUNCTION ---
+    async function uploadToCloudinary(file, loadingBtnElement, originalIconHtml) {
         if(!file) return;
-        
-        let attachBtn = document.getElementById("adminAttachBtn");
-        let sendBtn = document.getElementById("adminSendBtn");
-        let originalIcon = attachBtn.innerHTML;
-        
-        attachBtn.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
-        attachBtn.disabled = true; sendBtn.disabled = true;
+        if(file.size > 15 * 1024 * 1024) { 
+            alert("File size bahut badi hai! Kripya 15MB se chhoti file chunein."); return; 
+        }
+
+        loadingBtnElement.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
+        loadingBtnElement.disabled = true; 
+        document.getElementById("adminSendBtn").disabled = true;
 
         const formData = new FormData();
         formData.append('file', file);
         formData.append('upload_preset', UPLOAD_PRESET);
 
         try {
-            let response = await fetch(CLOUDINARY_URL, {
-                method: "POST",
-                body: formData
-            });
-            
+            let response = await fetch(CLOUDINARY_URL, { method: "POST", body: formData });
             let result = await response.json();
             
             if(result.secure_url) {
@@ -229,7 +257,7 @@
                     sender: 'admin', 
                     text: "", 
                     fileUrl: result.secure_url,
-                    fileType: file.type, // image/png, video/mp4 etc.
+                    fileType: file.type, 
                     timestamp: Date.now(),
                     status: 'sent' 
                 });
@@ -240,8 +268,28 @@
             alert("Upload Error! Internet connection check karein.");
         }
         
-        attachBtn.innerHTML = originalIcon;
-        attachBtn.disabled = false; sendBtn.disabled = false;
+        loadingBtnElement.innerHTML = originalIconHtml;
+        loadingBtnElement.disabled = false; 
+        document.getElementById("adminSendBtn").disabled = false;
+    }
+
+    // GALLERY/FILE ATTACHMENT
+    document.getElementById("adminAttachBtn").addEventListener("click", () => {
+        if(!currentKey) return;
+        document.getElementById("adminFileInput").click();
+    });
+    document.getElementById("adminFileInput").addEventListener("change", (e) => {
+        uploadToCloudinary(e.target.files[0], document.getElementById("adminAttachBtn"), '<i class="fas fa-paperclip"></i>');
+        e.target.value = ""; 
+    });
+
+    // DIRECT CAMERA HEADER ATTACHMENT
+    document.getElementById("adminHeaderCameraBtn").addEventListener("click", () => {
+        if(!currentKey) return;
+        document.getElementById("adminCameraInput").click();
+    });
+    document.getElementById("adminCameraInput").addEventListener("change", (e) => {
+        uploadToCloudinary(e.target.files[0], document.getElementById("adminHeaderCameraBtn"), '<i class="fas fa-camera"></i>');
         e.target.value = ""; 
     });
 
@@ -302,8 +350,9 @@
         }
 
         currentKey = key;
-        document.querySelector(".chat-header-title").innerHTML = `<span><i class="fas fa-hashtag"></i> Key: ${key}</span>`;
+        document.getElementById("chatTitleText").innerHTML = `<span><i class="fas fa-hashtag"></i> Key: ${key}</span>`;
         document.getElementById("chatInputArea").style.display = "flex";
+        document.getElementById("headerActionsBlock").style.display = "flex"; // Show Header Icons
         msgInput.focus();
         
         document.querySelectorAll(".key-item").forEach(el => el.classList.remove("active"));
@@ -357,7 +406,6 @@
                         }
                     }
 
-                    // --- DIRECT CLOUDINARY MEDIA RENDERING ---
                     let contentHtml = escapeHtml(m.text || "");
                     if (m.fileUrl) {
                         if (m.fileType && m.fileType.startsWith('image/')) {
@@ -381,7 +429,8 @@
                 msgBox.innerHTML = newHtmlString;
                 msgBox.scrollTop = msgBox.scrollHeight;
             } else {
-                 msgBox.innerHTML = `<div class="empty-chat"><p>Abhi tak koi message nahi aaya.</p></div>`;
+                 // Agar dataset empty ya null ho jaye (Clear Chat karne ke baad)
+                 msgBox.innerHTML = `<div class="empty-chat"><i class="fas fa-inbox"></i><p>Yahan abhi koi message nahi hai.</p></div>`;
             }
         });
 
