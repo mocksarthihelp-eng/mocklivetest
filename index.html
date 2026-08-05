@@ -163,6 +163,18 @@
         /* FOOTER WITH VISITOR BADGE STYLE */
         .site-footer { margin-top: 2rem; background: #0f172a; text-align: center; padding: 1.2rem 1rem; border-radius: 8px; color: #94a3b8; border-top: 2px solid #f97316; font-size: 0.85rem; }
 
+        /* ===== CALL OVERLAY CSS ===== */
+        #callOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.95); z-index: 9999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .call-box { text-align: center; color: white; display: flex; flex-direction: column; align-items: center; }
+        .pulse-ring { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1e293b; position: relative; margin-bottom: 20px; border: 4px solid #334155;}
+        .pulse-ring::before { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; background: #25D366; animation: pulse 1.5s infinite; z-index: -1; opacity: 0.6; }
+        @keyframes pulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.5); opacity: 0; } }
+        .call-buttons { display: flex; gap: 25px; margin-top: 30px; }
+        .call-btn { width: 65px; height: 65px; border-radius: 50%; border: none; color: white; font-size: 1.6rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; box-shadow: 0 10px 20px rgba(0,0,0,0.3);}
+        .call-btn:hover { transform: scale(1.08); }
+        .btn-accept { background: #25D366; display: none; }
+        .btn-reject { background: #ef4444; }
+
         /* ========= LIVE SUPPORT WIDGET ========= */
         .livesupport-fab {
             position: fixed; bottom: 22px; right: 22px; width: 58px; height: 58px;
@@ -189,6 +201,7 @@
         .ls-action-icon { cursor: pointer; opacity: 0.85; font-size: 1.1rem; transition: 0.2s; display: flex; align-items: center; justify-content: center;}
         .ls-action-icon:hover { opacity: 1; color: #ffd966; }
         .ls-action-icon.danger:hover { color: #ef4444; }
+        .ls-action-icon.call:hover { color: #34b7f1; }
 
         .ls-panel-body { padding: 18px 16px; display: flex; flex-direction: column; gap: 12px; }
         @media (max-width: 480px) {
@@ -241,6 +254,23 @@
     </style>
 </head>
 <body>
+
+<!-- Hidden Audio Player for Incoming Voice Call -->
+<audio id="remoteAudio" autoplay></audio>
+
+<!-- CALL OVERLAY SCREEN -->
+<div id="callOverlay">
+    <div class="call-box">
+        <div class="pulse-ring" id="callPulse"><i class="fas fa-user-circle" style="font-size:5rem; color:#94a3b8;"></i></div>
+        <h2 id="callStatusText" style="font-size: 1.5rem;">Calling Admin...</h2>
+        <p id="callTimer" style="color: #94a3b8; margin-top: 8px; display: none;">00:00</p>
+        
+        <div class="call-buttons">
+            <button class="call-btn btn-accept" id="acceptCallBtn"><i class="fas fa-phone"></i></button>
+            <button class="call-btn btn-reject" id="endCallBtn"><i class="fas fa-phone-slash"></i></button>
+        </div>
+    </div>
+</div>
 
 <div id="toastContainer"></div>
 
@@ -468,6 +498,9 @@
             <h4><i class="fas fa-headset"></i> Live Support</h4>
             <div style="display: flex; gap: 12px; align-items: center;">
                 <span id="lsHeaderIcons" style="display:none; gap:12px; align-items:center;">
+                    <!-- STUDENT CALL BUTTON -->
+                    <i class="fas fa-phone-alt ls-action-icon call" id="studentCallBtn" title="Voice Call"></i>
+                    
                     <i class="fas fa-camera ls-action-icon" id="studentHeaderCameraBtn" title="Direct Camera"></i>
                     <input type="file" id="studentCameraInput" accept="image/*" capture style="display: none;">
                     <i class="fas fa-trash-alt ls-action-icon danger" id="studentClearChatBtn" title="Clear Chat for Both"></i>
@@ -495,7 +528,7 @@
         
         <div class="ls-emoji-picker" id="studentEmojiPicker"></div>
 
-        <!-- NEW: Chat Bottom Wrap -->
+        <!-- Chat Bottom Wrap -->
         <div style="display: flex; flex-direction: column; background: #1e293b; border-top: 1px solid #334155;">
             
             <div id="replyPreviewBox">
@@ -1362,10 +1395,10 @@
     loadData(); 
 </script>
 
-<!-- 🆕 Firebase Live Support Logic with Anti-Double Fixes, MEDIA UPLOAD, CLEAR CHAT & REPLY/DELETE -->
+<!-- 🆕 Firebase Live Support Logic with WebRTC Calling, Reply, Delete & Media -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
-    import { getDatabase, ref, get, push, onValue, update, onDisconnect, off, remove } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+    import { getDatabase, ref, get, push, onValue, update, onDisconnect, off, remove, set } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
 
     const firebaseConfig = {
         apiKey: "AIzaSyBUPIULkKxZx0d7sX6kag2Fa-nmkgjnDA8",
@@ -1389,12 +1422,24 @@
     let isSending = false;
     let currentMessagesRef = null;
     let currentStatusRef = null;
-
     let replyingToData = null;
+
+    // --- WEBRTC CALLING VARIABLES ---
+    let localStream;
+    let peerConnection;
+    let callStateRef = null;
+    let iceCandidatesRef = null;
+    let callTimerInterval;
+    let callSeconds = 0;
+    const pcConfig = {
+        iceServers: [
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+    };
     
     function escapeHtml(str) { return str.replace(/[&<>]/g, m => m=='&'?'&amp;':m=='<'?'&lt;':'&gt;'); }
 
-    // --- GLOBAL FUNCTIONS FOR MESSAGE ACTIONS ---
     window.setReply = function(msgId, textSnippet, sender) {
         replyingToData = { id: msgId, text: textSnippet, sender: sender };
         document.getElementById("replyPreviewBox").style.display = "block";
@@ -1416,50 +1461,194 @@
         }
     };
 
-    // --- EMOJI LOGIC ---
+    // --- WEBRTC CALL LOGIC START ---
+    document.getElementById("studentCallBtn").addEventListener("click", () => {
+        if(!activeSessionKey) return;
+        initiateCall();
+    });
+
+    async function initiateCall() {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            
+            document.getElementById("callOverlay").style.display = "flex";
+            document.getElementById("callStatusText").innerText = "Calling Admin...";
+            document.getElementById("acceptCallBtn").style.display = "none";
+            document.getElementById("callPulse").style.borderColor = "#34b7f1";
+            document.getElementById("callTimer").style.display = "none";
+
+            peerConnection = new RTCPeerConnection(pcConfig);
+            
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = event => {
+                document.getElementById("remoteAudio").srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    push(ref(db, `calls/${activeSessionKey}/iceCandidates/student`), event.candidate.toJSON());
+                }
+            };
+
+            const offerDescription = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offerDescription);
+
+            const callConfig = {
+                caller: 'student',
+                status: 'calling',
+                offer: {
+                    type: offerDescription.type,
+                    sdp: offerDescription.sdp
+                }
+            };
+
+            await set(ref(db, `calls/${activeSessionKey}`), callConfig);
+
+            onValue(ref(db, `calls/${activeSessionKey}`), async (snapshot) => {
+                const data = snapshot.val();
+                if (!data) return;
+
+                if (data.status === 'ongoing' && data.answer && !peerConnection.currentRemoteDescription) {
+                    document.getElementById("callStatusText").innerText = "In Call (Live)";
+                    startCallTimer();
+                    const answerDescription = new RTCSessionDescription(data.answer);
+                    await peerConnection.setRemoteDescription(answerDescription);
+                }
+            });
+
+            iceCandidatesRef = ref(db, `calls/${activeSessionKey}/iceCandidates/admin`);
+            onValue(iceCandidatesRef, snapshot => {
+                snapshot.forEach(childSnapshot => {
+                    const candidate = new RTCIceCandidate(childSnapshot.val());
+                    if(peerConnection) peerConnection.addIceCandidate(candidate);
+                });
+            });
+
+        } catch (error) {
+            alert("Microphone permission denied! Calling requires microphone access.");
+            endCallLocal();
+        }
+    }
+
+    async function answerCall(offerData) {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            document.getElementById("acceptCallBtn").style.display = "none";
+            document.getElementById("callStatusText").innerText = "Connecting...";
+
+            peerConnection = new RTCPeerConnection(pcConfig);
+
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            peerConnection.ontrack = event => {
+                document.getElementById("remoteAudio").srcObject = event.streams[0];
+            };
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    push(ref(db, `calls/${activeSessionKey}/iceCandidates/student`), event.candidate.toJSON());
+                }
+            };
+
+            const offerDescription = new RTCSessionDescription(offerData);
+            await peerConnection.setRemoteDescription(offerDescription);
+
+            const answerDescription = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answerDescription);
+
+            const callConfig = {
+                caller: 'admin',
+                status: 'ongoing',
+                answer: {
+                    type: answerDescription.type,
+                    sdp: answerDescription.sdp
+                }
+            };
+
+            await update(ref(db, `calls/${activeSessionKey}`), callConfig);
+            document.getElementById("callStatusText").innerText = "In Call (Live)";
+            document.getElementById("callPulse").style.borderColor = "#25D366";
+            startCallTimer();
+
+            iceCandidatesRef = ref(db, `calls/${activeSessionKey}/iceCandidates/admin`);
+            onValue(iceCandidatesRef, snapshot => {
+                snapshot.forEach(childSnapshot => {
+                    const candidate = new RTCIceCandidate(childSnapshot.val());
+                    if(peerConnection) peerConnection.addIceCandidate(candidate);
+                });
+            });
+
+        } catch(error) {
+            alert("Microphone Error: " + error.message);
+            endCallLocal();
+        }
+    }
+
+    document.getElementById("endCallBtn").addEventListener("click", () => {
+        if(activeSessionKey) remove(ref(db, `calls/${activeSessionKey}`));
+        endCallLocal();
+    });
+
+    function endCallLocal() {
+        document.getElementById("callOverlay").style.display = "none";
+        clearInterval(callTimerInterval);
+        document.getElementById("callTimer").style.display = "none";
+        callSeconds = 0;
+
+        if (peerConnection) { peerConnection.close(); peerConnection = null; }
+        if (localStream) { localStream.getTracks().forEach(track => track.stop()); localStream = null; }
+        if (iceCandidatesRef) { off(iceCandidatesRef); }
+    }
+
+    function startCallTimer() {
+        callSeconds = 0;
+        document.getElementById("callTimer").style.display = "block";
+        clearInterval(callTimerInterval);
+        callTimerInterval = setInterval(() => {
+            callSeconds++;
+            let m = Math.floor(callSeconds / 60).toString().padStart(2, '0');
+            let s = (callSeconds % 60).toString().padStart(2, '0');
+            document.getElementById("callTimer").innerText = `${m}:${s}`;
+        }, 1000);
+    }
+    // --- WEBRTC CALL LOGIC END ---
+
+    // EMOJI LOGIC
     const emojis = ["😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😌","😍","🥰","😘","😋","😛","😝","😜","🤪","🤓","😎","🤩","🥳","😏","😒","😞","😔","😟","😕","🙁","☹️","😣","😖","😫","😩","🥺","😢","😭","😤","😠","😡","🤯","😳","😱","😨","😰","😥","😓","🤗","🤔","🤭","🤫","😶","😐","😑","😬","🙄","😯","😦","😧","😮","😲","🥱","😴","🤤","😪","😵","🤐","🥴","🤢","🤮","🤧","😷","🤒","🤕","🤑","🤠","😈","👿","👻","💀","👽","👾","🤖","🎃","👍","👎","👏","🙌","👐","🤲","🤝","🙏","✌️","🤞","👆","👇","👈","👉","🔥","💯","❤️","💔"];
     const emojiPicker = document.getElementById("studentEmojiPicker");
     const msgInput = document.getElementById("studentMsgInput");
 
     emojis.forEach(e => {
-        let span = document.createElement("span");
-        span.innerText = e;
-        span.onclick = () => {
-            msgInput.value += e;
-            msgInput.focus();
-        };
+        let span = document.createElement("span"); span.innerText = e;
+        span.onclick = () => { msgInput.value += e; msgInput.focus(); };
         emojiPicker.appendChild(span);
     });
 
-    document.getElementById("studentEmojiBtn").addEventListener("click", () => {
-        emojiPicker.classList.toggle("active");
-    });
-    
+    document.getElementById("studentEmojiBtn").addEventListener("click", () => { emojiPicker.classList.toggle("active"); });
     document.addEventListener("click", (e) => {
-        if (!e.target.closest("#studentEmojiBtn") && !e.target.closest("#studentEmojiPicker")) {
-            emojiPicker.classList.remove("active");
-        }
+        if (!e.target.closest("#studentEmojiBtn") && !e.target.closest("#studentEmojiPicker")) { emojiPicker.classList.remove("active"); }
     });
 
-    // --- CLEAR CHAT (FOR BOTH) LOGIC ---
+    // CLEAR CHAT
     document.getElementById("studentClearChatBtn").addEventListener("click", () => {
         if(!activeSessionKey) return;
         let confirmClear = confirm("Kya aap sach mein saari chat delete karna chahte hain?");
         if(confirmClear) {
             remove(ref(db, 'messages/' + activeSessionKey)).then(() => {
                 document.getElementById("studentChatMessages").innerHTML = `<div class="empty-chat"><i class="fas fa-broom"></i><p>Chat cleared successfully!</p></div>`;
-            }).catch((err) => {
-                alert("Error clearing chat!");
             });
         }
     });
 
-    // --- CLOUDINARY MEDIA UPLOAD LOGIC ---
+    // CLOUDINARY MEDIA UPLOAD LOGIC
     async function uploadToCloudinary(file, loadingBtnElement, originalIconClass) {
         if(!file) return;
-        if(file.size > 15 * 1024 * 1024) { 
-            alert("File size bahut badi hai! Kripya 15MB se chhoti file chunein."); return; 
-        }
+        if(file.size > 15 * 1024 * 1024) { alert("File size bahut badi hai!"); return; }
 
         let originalHtml = loadingBtnElement.innerHTML;
         loadingBtnElement.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#34b7f1;"></i>`;
@@ -1475,57 +1664,25 @@
             let result = await response.json();
             
             if(result.secure_url) {
-                let msgObj = { 
-                    sender: 'student', 
-                    text: "", 
-                    fileUrl: result.secure_url,
-                    fileType: file.type, 
-                    timestamp: Date.now(),
-                    status: 'sent' 
-                };
-
-                if(replyingToData) {
-                    msgObj.replyTo = replyingToData;
-                    window.cancelReply();
-                }
-
+                let msgObj = { sender: 'student', text: "", fileUrl: result.secure_url, fileType: file.type, timestamp: Date.now(), status: 'sent' };
+                if(replyingToData) { msgObj.replyTo = replyingToData; window.cancelReply(); }
                 push(ref(db, 'messages/' + activeSessionKey), msgObj);
-            } else {
-                alert("Upload Failed: " + (result.error ? result.error.message : "Unknown error"));
-            }
-        } catch(err) {
-            alert("Upload Error! Internet connection check karein.");
-        }
+            } else { alert("Upload Failed"); }
+        } catch(err) { alert("Upload Error!"); }
         
         loadingBtnElement.innerHTML = originalHtml;
         loadingBtnElement.disabled = false;
         document.getElementById("studentSendBtn").disabled = false;
     }
 
-    // GALLERY ATTACHMENT
-    document.getElementById("studentAttachBtn").addEventListener("click", () => {
-        if(!activeSessionKey) return;
-        document.getElementById("studentFileInput").click();
-    });
-    document.getElementById("studentFileInput").addEventListener("change", (e) => {
-        uploadToCloudinary(e.target.files[0], document.getElementById("studentAttachBtn"), '<i class="fas fa-paperclip"></i>');
-        e.target.value = ""; 
-    });
+    document.getElementById("studentAttachBtn").addEventListener("click", () => { if(activeSessionKey) document.getElementById("studentFileInput").click(); });
+    document.getElementById("studentFileInput").addEventListener("change", (e) => { uploadToCloudinary(e.target.files[0], document.getElementById("studentAttachBtn"), '<i class="fas fa-paperclip"></i>'); e.target.value = ""; });
+    document.getElementById("studentHeaderCameraBtn").addEventListener("click", () => { if(activeSessionKey) document.getElementById("studentCameraInput").click(); });
+    document.getElementById("studentCameraInput").addEventListener("change", (e) => { uploadToCloudinary(e.target.files[0], document.getElementById("studentHeaderCameraBtn"), '<i class="fas fa-camera"></i>'); e.target.value = ""; });
 
-    // DIRECT CAMERA ATTACHMENT
-    document.getElementById("studentHeaderCameraBtn").addEventListener("click", () => {
-        if(!activeSessionKey) return;
-        document.getElementById("studentCameraInput").click();
-    });
-    document.getElementById("studentCameraInput").addEventListener("change", (e) => {
-        uploadToCloudinary(e.target.files[0], document.getElementById("studentHeaderCameraBtn"), '<i class="fas fa-camera"></i>');
-        e.target.value = ""; 
-    });
-
-    // --- MAIN CHAT UI LOGIC ---
+    // MAIN CHAT UI LOGIC
     document.getElementById("lsFabBtn").addEventListener("click", () => { 
         document.getElementById("lsPanel").style.display = "block"; 
-        
         if(!activeSessionKey) {
             document.getElementById("studentKeyInput").value = "";
             document.getElementById("lsKeyEntryArea").style.display = "block";
@@ -1541,12 +1698,10 @@
 
     document.getElementById("lsCloseBtn").addEventListener("click", () => { 
         document.getElementById("lsPanel").style.display = "none"; 
-        
         if(activeSessionKey) {
             update(ref(db, 'support_keys/' + activeSessionKey), { student_status: 'offline', student_typing: false });
             activeSessionKey = null;
         }
-
         document.getElementById("studentChatMessages").innerHTML = "";
         document.getElementById("studentKeyInput").value = ""; 
         document.getElementById("studentMsgInput").value = ""; 
@@ -1562,7 +1717,6 @@
     document.getElementById("verifyKeyBtn").addEventListener("click", async () => {
         const key = document.getElementById("studentKeyInput").value.trim();
         const errorMsg = document.getElementById("keyErrorMsg");
-        
         if(key.length !== 6) { errorMsg.style.display = "block"; return; }
 
         const snapshot = await get(ref(db, 'support_keys/' + key));
@@ -1594,10 +1748,30 @@
         if(currentStatusRef) off(currentStatusRef);
         currentStatusRef = ref(db, 'support_keys/' + key);
 
+        // --- Listen for Incoming Calls from Admin ---
+        if(callStateRef) off(callStateRef);
+        callStateRef = ref(db, `calls/${key}`);
+        onValue(callStateRef, (snapshot) => {
+            const data = snapshot.val();
+            if(!data) { endCallLocal(); return; }
+            
+            // Admin is calling student
+            if(data.caller === 'admin' && data.status === 'calling') {
+                document.getElementById("callOverlay").style.display = "flex";
+                document.getElementById("callPulse").style.borderColor = "#ef4444";
+                document.getElementById("callStatusText").innerText = "Admin is calling...";
+                document.getElementById("acceptCallBtn").style.display = "inline-block";
+                
+                // Bind accept button
+                document.getElementById("acceptCallBtn").onclick = () => answerCall(data.offer);
+            } else if (data.status === 'ended') {
+                endCallLocal();
+            }
+        });
+
         onValue(currentMessagesRef, (snapshot) => {
             const msgs = snapshot.val();
             let newHtmlString = ""; 
-            
             if(msgs) {
                 const now = Date.now();
                 const twelveHoursInMs = 12 * 60 * 60 * 1000;
@@ -1606,76 +1780,35 @@
 
                 Object.keys(msgs).forEach(msgId => {
                     let m = msgs[msgId];
-                    
-                    if (now - m.timestamp > twelveHoursInMs) {
-                        updatesToPerform[msgId] = null; 
-                        hasDeletes = true;
-                        return; 
-                    }
-                    
-                    if(m.sender === 'admin' && m.status !== 'read') {
-                        update(ref(db, `messages/${key}/${msgId}`), { status: 'read' });
-                    }
+                    if (now - m.timestamp > twelveHoursInMs) { updatesToPerform[msgId] = null; hasDeletes = true; return; }
+                    if(m.sender === 'admin' && m.status !== 'read') { update(ref(db, `messages/${key}/${msgId}`), { status: 'read' }); }
 
                     let time = new Date(m.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
                     let isStudent = m.sender === 'student';
-                    
-                    let tickHtml = '';
-                    if (isStudent) {
-                        if (m.status === 'read') {
-                            tickHtml = '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>'; 
-                        } else {
-                            tickHtml = '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>'; 
-                        }
-                    }
-
+                    let tickHtml = isStudent ? (m.status === 'read' ? '<i class="fas fa-check-double" style="color: #34b7f1; font-size: 0.75rem;"></i>' : '<i class="fas fa-check" style="color: #cbd5e1; font-size: 0.75rem;"></i>') : '';
                     let contentHtml = "";
 
-                    // REPLY PREVIEW BLOCK
                     if (m.replyTo) {
                         let repName = m.replyTo.sender === 'student' ? 'You' : 'Admin';
-                        contentHtml += `<div class="replied-msg-box">
-                                            <strong>${repName}</strong>
-                                            ${escapeHtml(m.replyTo.text)}
-                                        </div>`;
+                        contentHtml += `<div class="replied-msg-box"><strong>${repName}</strong>${escapeHtml(m.replyTo.text)}</div>`;
                     }
 
                     let textContent = escapeHtml(m.text || "");
                     let textSnippetForReply = textContent || "📷 Media File";
 
                     if (m.fileUrl) {
-                        if (m.fileType && m.fileType.startsWith('image/')) {
-                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${m.fileUrl}" class="chat-media-img" title="Click to view large"></a></div>`;
-                        } else if (m.fileType && m.fileType.startsWith('video/')) {
-                            contentHtml += `<div style="margin-top:2px;"><video src="${m.fileUrl}" controls class="chat-media-video"></video></div>`;
-                        } else if (m.fileType && m.fileType.startsWith('audio/')) {
-                            contentHtml += `<div style="margin-top:2px;"><audio src="${m.fileUrl}" controls class="chat-media-audio"></audio></div>`;
-                        } else {
-                            contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank" style="color:#34b7f1; text-decoration:underline; font-weight:bold;"><i class="fas fa-file"></i> Open File</a></div>`;
-                        }
+                        if (m.fileType && m.fileType.startsWith('image/')) { contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank"><img src="${m.fileUrl}" class="chat-media-img"></a></div>`; } 
+                        else if (m.fileType && m.fileType.startsWith('video/')) { contentHtml += `<div style="margin-top:2px;"><video src="${m.fileUrl}" controls class="chat-media-video"></video></div>`; } 
+                        else if (m.fileType && m.fileType.startsWith('audio/')) { contentHtml += `<div style="margin-top:2px;"><audio src="${m.fileUrl}" controls class="chat-media-audio"></audio></div>`; } 
+                        else { contentHtml += `<div style="margin-top:2px;"><a href="${m.fileUrl}" target="_blank" style="color:#34b7f1; text-decoration:underline; font-weight:bold;"><i class="fas fa-file"></i> Open File</a></div>`; }
                     }
                     contentHtml += textContent;
-
-                    // ACTION BUTTONS (REPLY & DELETE)
-                    let actionsHtml = `
-                        <div class="msg-controls">
-                            <i class="fas fa-reply msg-btn reply" title="Reply" onclick="window.setReply('${msgId}', '${textSnippetForReply.replace(/'/g, "\\'")}', '${m.sender}')"></i>
-                            <i class="fas fa-trash msg-btn delete" title="Delete" onclick="window.deleteMessage('${msgId}')"></i>
-                        </div>
-                    `;
-
-                    newHtmlString += `<div class="chat-bubble ${isStudent ? 'student' : 'admin'}">
-                                        ${contentHtml}
-                                        <span class="bubble-time">${actionsHtml} ${time} ${tickHtml}</span>
-                                      </div>`;
+                    let actionsHtml = `<div class="msg-controls"><i class="fas fa-reply msg-btn reply" onclick="window.setReply('${msgId}', '${textSnippetForReply.replace(/'/g, "\\'")}', '${m.sender}')"></i><i class="fas fa-trash msg-btn delete" onclick="window.deleteMessage('${msgId}')"></i></div>`;
+                    newHtmlString += `<div class="chat-bubble ${isStudent ? 'student' : 'admin'}">${contentHtml}<span class="bubble-time">${actionsHtml} ${time} ${tickHtml}</span></div>`;
                 });
                 
-                if (hasDeletes) {
-                    update(ref(db, `messages/${key}`), updatesToPerform);
-                }
-
-                msgBox.innerHTML = newHtmlString;
-                msgBox.scrollTop = msgBox.scrollHeight;
+                if (hasDeletes) { update(ref(db, `messages/${key}`), updatesToPerform); }
+                msgBox.innerHTML = newHtmlString; msgBox.scrollTop = msgBox.scrollHeight;
             } else {
                 msgBox.innerHTML = `<div class="empty-chat"><i class="fas fa-inbox"></i><p>Yahan abhi koi message nahi hai.</p></div>`;
             }
@@ -1684,62 +1817,31 @@
         onValue(currentStatusRef, (snapshot) => {
             const data = snapshot.val();
             if(data) {
-                if(data.admin_typing) {
-                    adminStatusBox.innerHTML = `<span style="color: #60a5fa;">Admin is typing... ✍️</span>`;
-                } else if(data.admin_status === 'online') {
-                    adminStatusBox.innerHTML = `<span style="color: #4ade80;">Admin is Online 🟢</span>`;
-                } else {
-                    adminStatusBox.innerHTML = `<span style="color: #94a3b8;">Admin is Offline 🔴</span>`;
-                }
+                if(data.admin_typing) { adminStatusBox.innerHTML = `<span style="color: #60a5fa;">Admin is typing... ✍️</span>`; } 
+                else if(data.admin_status === 'online') { adminStatusBox.innerHTML = `<span style="color: #4ade80;">Admin is Online 🟢</span>`; } 
+                else { adminStatusBox.innerHTML = `<span style="color: #94a3b8;">Admin is Offline 🔴</span>`; }
             }
         });
     }
 
     function sendStudentMessage() {
         if(isSending) return; 
-        
         let text = msgInput.value.trim();
         if (text !== "" && activeSessionKey) {
             isSending = true;
-
-            let msgObj = { 
-                sender: 'student', 
-                text: text, 
-                timestamp: Date.now(),
-                status: 'sent' 
-            };
-
-            if(replyingToData) {
-                msgObj.replyTo = replyingToData;
-                window.cancelReply(); // Reset reply state after sending
-            }
-            
+            let msgObj = { sender: 'student', text: text, timestamp: Date.now(), status: 'sent' };
+            if(replyingToData) { msgObj.replyTo = replyingToData; window.cancelReply(); }
             push(ref(db, 'messages/' + activeSessionKey), msgObj);
-            
-            msgInput.value = ""; 
-            emojiPicker.classList.remove("active");
+            msgInput.value = ""; emojiPicker.classList.remove("active");
             update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: false });
-            
             setTimeout(() => { isSending = false; }, 300);
         }
     }
 
     document.getElementById("studentSendBtn").addEventListener("click", sendStudentMessage);
-    msgInput.addEventListener("keydown", (e) => { 
-        if (e.key === "Enter") {
-            e.preventDefault(); 
-            sendStudentMessage(); 
-        }
-    });
-
+    msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendStudentMessage(); } });
     msgInput.addEventListener("input", () => {
-        if(activeSessionKey) {
-            update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: true });
-            clearTimeout(studentTypingTimer);
-            studentTypingTimer = setTimeout(() => {
-                update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: false });
-            }, 1500); 
-        }
+        if(activeSessionKey) { update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: true }); clearTimeout(studentTypingTimer); studentTypingTimer = setTimeout(() => { update(ref(db, 'support_keys/' + activeSessionKey), { student_typing: false }); }, 1500); }
     });
 </script>
 </body>
