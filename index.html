@@ -169,7 +169,7 @@
         .pulse-ring { width: 120px; height: 120px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1e293b; position: relative; margin-bottom: 20px; border: 4px solid #334155;}
         .pulse-ring::before { content: ''; position: absolute; width: 100%; height: 100%; border-radius: 50%; background: #25D366; animation: pulse 1.5s infinite; z-index: -1; opacity: 0.6; }
         @keyframes pulse { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.5); opacity: 0; } }
-        .call-buttons { display: flex; gap: 25px; margin-top: 30px; }
+        .call-buttons { display: flex; gap: 20px; margin-top: 30px; align-items: center; justify-content: center; }
         .call-btn { width: 65px; height: 65px; border-radius: 50%; border: none; color: white; font-size: 1.6rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; box-shadow: 0 10px 20px rgba(0,0,0,0.3);}
         .call-btn:hover { transform: scale(1.08); }
         .btn-accept { background: #25D366; display: none; }
@@ -267,7 +267,9 @@
         
         <div class="call-buttons">
             <button class="call-btn btn-accept" id="acceptCallBtn"><i class="fas fa-phone"></i></button>
-            <button class="call-btn btn-reject" id="endCallBtn"><i class="fas fa-phone-slash"></i></button>
+            <!-- MUTE BUTTON -->
+            <button class="call-btn" id="muteCallBtn" style="display: none; background: #475569;" title="Mute Microphone"><i class="fas fa-microphone"></i></button>
+            <button class="call-btn btn-reject" id="endCallBtn" title="End Call"><i class="fas fa-phone-slash"></i></button>
         </div>
     </div>
 </div>
@@ -1395,7 +1397,7 @@
     loadData(); 
 </script>
 
-<!-- 🆕 Firebase Live Support Logic with WebRTC Calling, Reply, Delete & Media -->
+<!-- 🆕 Firebase Live Support Logic with WebRTC Calling, Mute, Reply, Delete & Media -->
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
     import { getDatabase, ref, get, push, onValue, update, onDisconnect, off, remove, set } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
@@ -1431,6 +1433,8 @@
     let iceCandidatesRef = null;
     let callTimerInterval;
     let callSeconds = 0;
+    let isMuted = false;
+
     const pcConfig = {
         iceServers: [
             { urls: 'stun:stun1.l.google.com:19302' },
@@ -1461,6 +1465,23 @@
         }
     };
 
+    // --- WEBRTC MUTE LOGIC ---
+    document.getElementById("muteCallBtn").addEventListener("click", () => {
+        if(localStream && localStream.getAudioTracks().length > 0) {
+            isMuted = !isMuted;
+            localStream.getAudioTracks()[0].enabled = !isMuted;
+            
+            const muteIcon = document.querySelector("#muteCallBtn i");
+            if(isMuted) {
+                muteIcon.className = "fas fa-microphone-slash";
+                document.getElementById("muteCallBtn").style.background = "#ef4444";
+            } else {
+                muteIcon.className = "fas fa-microphone";
+                document.getElementById("muteCallBtn").style.background = "#475569";
+            }
+        }
+    });
+
     // --- WEBRTC CALL LOGIC START ---
     document.getElementById("studentCallBtn").addEventListener("click", () => {
         if(!activeSessionKey) return;
@@ -1474,6 +1495,7 @@
             document.getElementById("callOverlay").style.display = "flex";
             document.getElementById("callStatusText").innerText = "Calling Admin...";
             document.getElementById("acceptCallBtn").style.display = "none";
+            document.getElementById("muteCallBtn").style.display = "none";
             document.getElementById("callPulse").style.borderColor = "#34b7f1";
             document.getElementById("callTimer").style.display = "none";
 
@@ -1513,6 +1535,7 @@
 
                 if (data.status === 'ongoing' && data.answer && !peerConnection.currentRemoteDescription) {
                     document.getElementById("callStatusText").innerText = "In Call (Live)";
+                    document.getElementById("muteCallBtn").style.display = "inline-block";
                     startCallTimer();
                     const answerDescription = new RTCSessionDescription(data.answer);
                     await peerConnection.setRemoteDescription(answerDescription);
@@ -1573,6 +1596,7 @@
             await update(ref(db, `calls/${activeSessionKey}`), callConfig);
             document.getElementById("callStatusText").innerText = "In Call (Live)";
             document.getElementById("callPulse").style.borderColor = "#25D366";
+            document.getElementById("muteCallBtn").style.display = "inline-block";
             startCallTimer();
 
             iceCandidatesRef = ref(db, `calls/${activeSessionKey}/iceCandidates/admin`);
@@ -1596,9 +1620,15 @@
 
     function endCallLocal() {
         document.getElementById("callOverlay").style.display = "none";
+        document.getElementById("muteCallBtn").style.display = "none";
         clearInterval(callTimerInterval);
         document.getElementById("callTimer").style.display = "none";
         callSeconds = 0;
+
+        // Reset Mute State
+        isMuted = false;
+        document.querySelector("#muteCallBtn i").className = "fas fa-microphone";
+        document.getElementById("muteCallBtn").style.background = "#475569";
 
         if (peerConnection) { peerConnection.close(); peerConnection = null; }
         if (localStream) { localStream.getTracks().forEach(track => track.stop()); localStream = null; }
@@ -1761,8 +1791,7 @@
                 document.getElementById("callPulse").style.borderColor = "#ef4444";
                 document.getElementById("callStatusText").innerText = "Admin is calling...";
                 document.getElementById("acceptCallBtn").style.display = "inline-block";
-                
-                // Bind accept button
+                document.getElementById("muteCallBtn").style.display = "none";
                 document.getElementById("acceptCallBtn").onclick = () => answerCall(data.offer);
             } else if (data.status === 'ended') {
                 endCallLocal();
